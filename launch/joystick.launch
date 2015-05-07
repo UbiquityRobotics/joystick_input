@@ -1,0 +1,9 @@
+<launch>
+
+  <!-- Joystick low level driver -->
+  <node name="joy_node" pkg="joy" type="joy_node" output="screen" respawn="true"/>
+  
+  <!-- Joystick input node -->
+  <node name="joy_input" pkg="joy_input" type="joy_input" output="screen" respawn="true"/>
+  
+</launch>
