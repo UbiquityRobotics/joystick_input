@@ -39,6 +39,8 @@
 #define BUTTON_CMD_VEL    4     // When held we will publish twist messages to /cmd_vel on joystick
 #define BUTTON_HW_DIRECT  11    // When held the above motion buttons do DIRECT TO SERIAL PORT
 
+#define DEFAULT_SPEED     10
+
 // Joystick controls from /joy array
 #define AXIS_LINEAR       1
 #define AXIS_ANGULAR      0
@@ -237,6 +239,9 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
     /*
      * Direct actions on buttons
      */
+    std::string controlMode;
+    controlMode = (direct_serial_cmd_vel) ? "direct serial control" : "/cmd_vel topic twist message";
+    
     for(size_t i=0;i<joy->buttons.size();i++) {
         if (joy->buttons[i] != 0) {    // This button is being held down now
             button = i;
@@ -245,38 +250,38 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
             case BUTTON_HW_DIRECT:  // Do nothing, this is for direct hardware serial control
                 break;
             case BUTTON_FORWARD:
-                ROS_INFO("Command to start forward drive mode.");
+                ROS_INFO("Command to start forward drive mode using %s", controlMode.c_str());
                 if (direct_serial_cmd_vel) {
-                    drive_SetWheelSpeeds(10,10);
+                    drive_SetWheelSpeeds(DEFAULT_SPEED,DEFAULT_SPEED);
                 } else {
-                    cmd_vel_msg.linear.x = 7;
+                    cmd_vel_msg.linear.x = DEFAULT_SPEED;
                     cmd_vel_msg.angular.z = 0;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
 
                 break;
             case BUTTON_RIGHT:
-                ROS_INFO("Command to start right   drive mode.");
+                ROS_INFO("Command to start right   drive mode using %s", controlMode.c_str());
                 if (direct_serial_cmd_vel) {
-                    drive_SetWheelSpeeds(2,8);
+                    drive_SetWheelSpeeds(4,DEFAULT_SPEED);
                 } else {
-                    cmd_vel_msg.linear.x = 7;
+                    cmd_vel_msg.linear.x = DEFAULT_SPEED;
                     cmd_vel_msg.angular.z = 5;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
                 break;
             case BUTTON_LEFT:
-                ROS_INFO("Command to start left    drive mode.");
+                ROS_INFO("Command to start left    drive mode using %s", controlMode.c_str());
                 if (direct_serial_cmd_vel) {
-                    drive_SetWheelSpeeds(8,2);
+                    drive_SetWheelSpeeds(DEFAULT_SPEED,4);
                 } else {
-                    cmd_vel_msg.linear.x = 7;
+                    cmd_vel_msg.linear.x = DEFAULT_SPEED;
                     cmd_vel_msg.angular.z = -5;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
                 break;
             case BUTTON_STOP:
-                ROS_INFO("Command to STOP [%d] any active driving.",button);
+                ROS_INFO("Command to STOP any active driving  using %s", controlMode.c_str());
                 if (direct_serial_cmd_vel) {
                     drive_SetWheelSpeeds(0,0);
                 } else {
