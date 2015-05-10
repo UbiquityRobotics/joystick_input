@@ -4,6 +4,22 @@
   <node name="joy_node" pkg="joy" type="joy_node" output="screen" respawn="true"/>
   
   <!-- Joystick input node -->
-  <node name="joy_input" pkg="joy_input" type="joy_input" output="screen" respawn="true"/>
+  <node name="joy_input" pkg="joy_input" type="joy_input" output="screen" respawn="true">
+    <param name="/disable_nav_stack"        value="1" />
+    <param name="/joystick_type"            value="0" />    <!-- XBOX 360 = 0    PS3 = 1 -->
+
+    <param name="/target_1_x"         value="0.00" />
+    <param name="/target_1_y"         value="0.00" />
+    <param name="/target_1_w"         value="1.00" />
+
+    <param name="/target_2_x"         value="0.00" />
+    <param name="/target_2_y"         value="0.70" />
+    <param name="/target_2_w"         value="1.00" />
+
+    <param name="/target_3_x"         value="0.70" />
+    <param name="/target_3_y"         value="0.00" />
+    <param name="/target_3_w"         value="1.00" />
+
+  </node>
   
 </launch>
