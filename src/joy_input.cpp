@@ -40,6 +40,7 @@ typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseC
 #define  SERIAL_DEV_TO_MOTOR_DRIVER   "/dev/ttyAMA0"    // Raspberry Pi main serial port
 #define  WHEEL_SPEED_MAX          20                // max wheel speed
 #define  DEFAULT_SPEED            10
+#define  DEFAULT_TURNING          5
 
 // Button definitions for the array place used for a given controller
 // use rostopic echo /joy for your controller and define buttons below
@@ -47,40 +48,56 @@ typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseC
 #define JOYSTICK_XBOX              0
 #define JOYSTICK_PS3               1
 
-// XBOX 360 button mapping
-#define BUTTON_XBOX_CMD_VEL        4     // When held we will publish twist messages to /cmd_vel on joystick
-#define BUTTON_XBOX_HW_DIRECT      7     // When held the above motion buttons do DIRECT TO SERIAL PORT
+// XBOX 360 buttons (in terms of the wireless controller)
+#define BUTTON_XBOX_L_TOP_FRONT    4     // top front left hand button
+#define BUTTON_XBOX_R_TOP_FRONT    5     // top front right hand button
+#define BUTTON_XBOX_BACK           6     // Little round 'Back' button to left of center big 'X' round button
+#define BUTTON_XBOX_START          7     // Little round 'Start' button to right of center big 'X' round button
 
-#define BUTTON_XBOX_STOP           0
-#define BUTTON_XBOX_RESET          5
-#define BUTTON_XBOX_FORWARD        3
-#define BUTTON_XBOX_RIGHT          1
-#define BUTTON_XBOX_LEFT           2
-#define BUTTON_XBOX_NAV_1         13
-#define BUTTON_XBOX_NAV_2         12
-#define BUTTON_XBOX_NAV_3         14
-#define BUTTON_XBOX_NAV_4         15
+#define BUTTON_XBOX_YELLOW_Y       3     // Yellow 'Y' button 
+#define BUTTON_XBOX_RED_B          1     // Red 'B' button
+#define BUTTON_XBOX_BLUE_X         2     // Blue 'X' button
+#define BUTTON_XBOX_GREEN_A        0     // Green 'A' button
+
+#define BUTTON_XBOX_RESET          999   // Not implemented
+
+
+// PS3 DualShock3 buttons (in terms of the wireless controller)
+#define BUTTON_PS3__L_TOP_FRONT    4     // top front left hand button
+#define BUTTON_PS3__R_TOP_FRONT    5     // top front right hand button
+#define BUTTON_PS3__SELECT         6     // Select button in center section on top
+#define BUTTON_PS3__START          7     // Start button in center section on top
+
+#define BUTTON_PS3__GRN_TRIANGLE   3     // Green triangle key to right
+#define BUTTON_PS3__RED_CIRCLE     1     // Yellow 'Y' button 
+#define BUTTON_PS3__BLUE_X         0     // Blue X button
+#define BUTTON_PS3__VIO_SQUARE     2     // Violet square button
+
 
 // We have a button map so we can support different joystick types
 typedef struct buttonMap_t {
-    int buttonCmdVel;
-    int buttonHwDirect;
-    int buttonStop;
+    int buttonCmdVel;              // When held down the left joystick goes to /cmd_vel topic
+    int buttonHwDirect;            // When held down we use colored keys for direct serial HW commands
+    int buttonNavGotoTarget;       // When held down we go to NAV point if colored key is hit
+
+    //  The 4 buttons on right have 3 functions each depending on the control buttons held or not
+    int buttonForwardNav1;         // Move forward (direct or cmd_vel) or goto Nav1 
+    int buttonRightNav2;           // Move Right   (direct or cmd_vel) or goto Nav2
+    int buttonLeftNav3;            // Move Left    (direct or cmd_vel) or goto Nav4
+    int buttonStopNav4;            // Move Stop    (direct or cmd_vel) or goto Nav3
+
     int buttonReset;
-    int buttonForward;
-    int buttonRight;
-    int buttonLeft;
-    int buttonNav1;
-    int buttonNav2;
-    int buttonNav3;
-    int buttonNav4;
 } ButtonMap;
 
-#define DEFAULT_SPEED     10
+// if we need global:   ButtonMap g_buttonMap;
 
 // Joystick controls from /joy array for XBOX 360
-#define AXIS_XBOX_LINEAR       1
-#define AXIS_XBOX_ANGULAR      0
+#define AXIS_XBOX_LEFT_FWD_BACK    1     // Left joystick front to back
+#define AXIS_XBOX_LEFT_SIDE_SIDE   0     // Left joystick side to side
+
+// Joystick controls from /joy array for XBOX 360
+#define AXIS_PS3__LEFT_FWD_BACK    1
+#define AXIS_PS3__LEFT_SIDE_SIDE   0
 
 // We have a Axis map so we can support different joystick types
 typedef struct axisMap_t {
@@ -94,7 +111,16 @@ typedef struct axisMap_t {
 
 // A poor mans state for this node
 typedef struct NodeState {
-    bool   disableNavStack;          // If set non-zero we disable nav stack code
+    bool   disableNavStack;    // If set non-zero we disable nav stack code
+
+    double cmdVelSpeed;        // The velocity used for simple button twist velocity
+    double cmdVelTurnSpeed;    // The velocity used for simple button twist turning 
+
+    double cmdVelJoyMax;       // The scaling factor used forward/back joystick gain
+    double cmdVelJoyTurnMax;   // The scaling factor used forward/back joystick gain
+
+    double directHwSpeed;      // The velocity used for simple button serial speed 
+    double directHwTurnSpeed;  // The velocity used for simple button serial turning
 
 
     // These are target destinations that come in as ros params.
@@ -182,6 +208,34 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
       state.disableNavStack = 1;
     }
   }
+
+  paramFloat = state.cmdVelSpeed;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_speed", paramFloat)) {
+    state.cmdVelSpeed = paramFloat;
+  }
+  paramFloat = state.cmdVelTurnSpeed;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_turn_speed", paramFloat)) {
+    state.cmdVelTurnSpeed = paramFloat;
+  }
+
+  paramFloat = state.cmdVelJoyMax;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_max", paramFloat)) {
+    state.cmdVelJoyMax = paramFloat;
+  }
+  paramFloat = state.cmdVelJoyTurnMax;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_turn_max", paramFloat)) {
+    state.cmdVelJoyTurnMax = paramFloat;
+  }
+
+  paramFloat = state.directHwSpeed;
+  if (fetchFloatRosParam(nh, "/joy_input/direct_hw_speed", paramFloat)) {
+    state.directHwSpeed = paramFloat;
+  }
+  paramFloat = state.directHwTurnSpeed;
+  if (fetchFloatRosParam(nh, "/joy_input/direct_hw_turn_speed", paramFloat)) {
+    state.directHwTurnSpeed = paramFloat;
+  }
+
 
 
   // This is some really dirty 'just do it' code.  PLEASE don't show this to my mother ...  ;-)
@@ -371,7 +425,7 @@ class MoveGoal {
     std::string desc;     // String that can be used to describe this goal
     float    x;          // X Coordinate this goal refers to
     float    y;          // Y Coordinate this goal refers to
-    float    w;          // Rotation
+    float    w;          // Orientation
     float    z;          // An X Coordinate this goal refers to
     float    speed;      // A speed we may wish to specify
     ros::Time startTime;  // Time we started this goal in system clock units
@@ -385,12 +439,12 @@ class MoveGoal {
         type(G_NONE), desc("Goal"), x(0.0), y(0.0), z(0.0), w(0.0),
         speed(0.0), startTime(ros::Time::now()), duration(0.0), timeout(0.0) {}
 
-    MoveGoal(MoveGoalType t, float xpos, float ypos) :
-        type(t), desc("Goal"), x(xpos), y(ypos), z(0.0), w(0.0),
+    MoveGoal(MoveGoalType t, float xpos, float ypos, float wpos) :
+        type(t), desc("Goal"), x(xpos), y(ypos), z(0.0), w(wpos),
         speed(0.0), startTime(ros::Time::now()), duration(0.0), timeout(0.0) {}
 
-    MoveGoal(MoveGoalType t, std::string dstr, float xpos, float ypos) :
-        type(t), desc(dstr), x(xpos), y(ypos), z(0.0), w(0.0),
+    MoveGoal(MoveGoalType t, std::string dstr, float xpos, float ypos, float wpos) :
+        type(t), desc(dstr), x(xpos), y(ypos), z(0.0), w(wpos),
         speed(0.0), startTime(ros::Time::now()), duration(0.0), timeout(0.0) {}
 
     // getters
@@ -465,7 +519,7 @@ public:
     int setJoystickType(int type) {
         switch (type) {
             case JOYSTICK_XBOX:
-                ROS_ERROR("%s: Joystick type set to XBOX",THIS_NODE_NAME);
+                ROS_INFO("%s: Joystick type set to XBOX",THIS_NODE_NAME);
                 joystickType = type;
                 break;
             case JOYSTICK_PS3:
@@ -491,20 +545,19 @@ public:
                 joystickType = type;
                 retCode = 0;
 
-                buttonMap.buttonCmdVel    = BUTTON_XBOX_CMD_VEL;
-                buttonMap.buttonHwDirect  = BUTTON_XBOX_HW_DIRECT;
-                buttonMap.buttonStop      = BUTTON_XBOX_STOP;
-                buttonMap.buttonReset     = BUTTON_XBOX_RESET;
-                buttonMap.buttonForward   = BUTTON_XBOX_FORWARD;
-                buttonMap.buttonRight     = BUTTON_XBOX_RIGHT;
-                buttonMap.buttonLeft      = BUTTON_XBOX_LEFT;
-                buttonMap.buttonNav1      = BUTTON_XBOX_NAV_1;
-                buttonMap.buttonNav2      = BUTTON_XBOX_NAV_2;
-                buttonMap.buttonNav3      = BUTTON_XBOX_NAV_3;
-                buttonMap.buttonNav4      = BUTTON_XBOX_NAV_4;
+                buttonMap.buttonCmdVel        = BUTTON_XBOX_L_TOP_FRONT;  // Hold down to allow left joystick to /cmd_vel
+                buttonMap.buttonHwDirect      = BUTTON_XBOX_START;        // Hold down to use direct serial motor control
+                buttonMap.buttonNavGotoTarget = BUTTON_XBOX_BACK;         // Hold down to 'shift' to nav goto target
 
-                axisMap.axisLinear      = AXIS_XBOX_LINEAR;
-                axisMap.axisAngular     = AXIS_XBOX_ANGULAR;
+                buttonMap.buttonForwardNav1   = BUTTON_XBOX_YELLOW_Y;
+                buttonMap.buttonRightNav2     = BUTTON_XBOX_RED_B;
+                buttonMap.buttonLeftNav3      = BUTTON_XBOX_BLUE_X;
+                buttonMap.buttonStopNav4      = BUTTON_XBOX_GREEN_A;
+
+                buttonMap.buttonReset         = BUTTON_XBOX_RESET;
+
+                axisMap.axisLinear            = AXIS_XBOX_LEFT_FWD_BACK;
+                axisMap.axisAngular           = AXIS_XBOX_LEFT_SIDE_SIDE;;
                 break;
 
             case JOYSTICK_PS3:
@@ -546,11 +599,18 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
     // Initializes with zeros by default.
     geometry_msgs::Twist cmd_vel_msg;
 
-    // Get option from switch button if we are doing DIRECT hw control, NOT through bridge
-    bool direct_serial_cmd_vel = false;   // Default is to use ros twist topic
+    // Get option from button if we are doing DIRECT hw control with the 4 colored keys
+    bool direct_serial_cmd_vel_mode = false;   // Default is to use ros twist topic
     if (joy->buttons.size() >= buttonMap.buttonHwDirect) {
-        direct_serial_cmd_vel = joy->buttons[buttonMap.buttonHwDirect];   // Use direct serial, not arduino bridge
+        direct_serial_cmd_vel_mode = joy->buttons[buttonMap.buttonHwDirect];   // Use direct serial, not arduino bridge
     }
+
+    // Get option from button if we are doing navigation goto with the 4 colored keys
+    bool nav_goto_target_mode = false;   // Default is to use the keys for manual bot control
+    if (joy->buttons.size() >= buttonMap.buttonNavGotoTarget) {
+        nav_goto_target_mode = joy->buttons[buttonMap.buttonNavGotoTarget];  // Colored keys will goto nav point
+    }
+
     /*
      * Twist topic output on joystick with button press
      */
@@ -561,8 +621,8 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 
     if (enable_joy_cmd_vel) {
         // Pull the joysticks for forward and turning off of /joy topic
-        cmd_vel_msg.linear.x = joy->axes[axisMap.axisLinear] * AXIS_LINEAR_SCALE;
-        cmd_vel_msg.angular.z = joy->axes[axisMap.axisAngular] * AXIS_ANGULAR_SCALE;
+        cmd_vel_msg.linear.x = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
+        cmd_vel_msg.angular.z = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
 
         // Publish classic 'twist' velocities to the rest of the system
         cmd_vel_pub_.publish(cmd_vel_msg);
@@ -576,7 +636,8 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
      * Direct actions on buttons
      */
     std::string controlMode;
-    controlMode = (direct_serial_cmd_vel) ? "direct serial control" : "/cmd_vel topic twist message";
+    controlMode = (direct_serial_cmd_vel_mode) ? "direct serial control" : "/cmd_vel topic twist message";
+    int multiControlBits = 0;
 
     
     for(size_t i=0;i<joy->buttons.size();i++) {
@@ -584,71 +645,77 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
             button = i;
 
             // We do big ol if then else here because switch only supports case constants
-            if ((button == buttonMap.buttonCmdVel) ||
-                (button == buttonMap.buttonCmdVel)) { 
-                // Do nothing, this is done for joystick code
+            // TODO!!!  Logic for control buttons will get confused if multiple control keys at once
+            if ((button == buttonMap.buttonCmdVel)        ||
+                (button == buttonMap.buttonNavGotoTarget) ||
+                (button == buttonMap.buttonHwDirect)) { 
+                // form a composite control key code although we may never use it
+                // Note that we cannot use this in other parts of the combo-if because
+                // depending on button number not all of the bits may be set yet
+                multiControlBits |= 1 << button;
 
-            } else if (button == buttonMap.buttonForward) {
-                ROS_INFO("Command to start forward drive mode using %s", controlMode.c_str());
-                if (direct_serial_cmd_vel) {
-                    drive_SetWheelSpeeds(DEFAULT_SPEED,DEFAULT_SPEED);
+            } else if (button == buttonMap.buttonForwardNav1) {
+                if (direct_serial_cmd_vel_mode) {
+                    ROS_INFO("Command to start forward drive mode using %s", controlMode.c_str());
+                    drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwSpeed);
+                } else if (nav_goto_target_mode) {
+                    ROS_INFO("Command to Navigate location 1");
+                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                        nodeState.target1_x, nodeState.target1_y, nodeState.target1_w ));
                 } else {
-                    cmd_vel_msg.linear.x = DEFAULT_SPEED;
+                    ROS_INFO("Command to start forward drive mode using %s", controlMode.c_str());
+                    cmd_vel_msg.linear.x = nodeState.cmdVelSpeed;
                     cmd_vel_msg.angular.z = 0;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
 
-            } else if (button == buttonMap.buttonRight) {
-                ROS_INFO("Command to start right   drive mode using %s", controlMode.c_str());
-                if (direct_serial_cmd_vel) {
-                    drive_SetWheelSpeeds(4,DEFAULT_SPEED);
+            } else if (button == buttonMap.buttonRightNav2) {
+                if (direct_serial_cmd_vel_mode) {
+                    ROS_INFO("Command to start right   drive mode using %s", controlMode.c_str());
+                    drive_SetWheelSpeeds((int)nodeState.directHwTurnSpeed,(int)nodeState.directHwSpeed);
+                } else if (nav_goto_target_mode) {
+                    ROS_INFO("Command to Navigate location 2");
+                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                        nodeState.target2_x, nodeState.target2_y, nodeState.target2_w));
                 } else {
-                    cmd_vel_msg.linear.x = DEFAULT_SPEED;
-                    cmd_vel_msg.angular.z = 5;
+                    ROS_INFO("Command to start right   drive mode using %s", controlMode.c_str());
+                    cmd_vel_msg.linear.x = nodeState.cmdVelSpeed;
+                    cmd_vel_msg.angular.z = nodeState.cmdVelTurnSpeed;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
 
-            } else if (button == buttonMap.buttonLeft) {
-                ROS_INFO("Command to start left    drive mode using %s", controlMode.c_str());
-                if (direct_serial_cmd_vel) {
-                    drive_SetWheelSpeeds(DEFAULT_SPEED,4);
+            } else if (button == buttonMap.buttonLeftNav3) {
+                if (direct_serial_cmd_vel_mode) {
+                    ROS_INFO("Command to start left    drive mode using %s", controlMode.c_str());
+                    drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwTurnSpeed);
+                } else if (nav_goto_target_mode) {
+                    ROS_INFO("Command to Navigate location 3");
+                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                        nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
                 } else {
-                    cmd_vel_msg.linear.x = DEFAULT_SPEED;
-                    cmd_vel_msg.angular.z = -5;
+                    ROS_INFO("Command to start left    drive mode using %s", controlMode.c_str());
+                    cmd_vel_msg.linear.x = nodeState.cmdVelSpeed;
+                    cmd_vel_msg.angular.z = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
 
-            } else if (button == buttonMap.buttonStop) {
-                ROS_INFO("Command to STOP any active driving  using %s", controlMode.c_str());
-                if (direct_serial_cmd_vel) {
+            } else if (button == buttonMap.buttonStopNav4) {
+                if (direct_serial_cmd_vel_mode) {
+                    ROS_INFO("Command to STOP any active driving  using %s", controlMode.c_str());
                     drive_SetWheelSpeeds(0,0);
+                } else if (nav_goto_target_mode) {
+                    ROS_INFO("Command to Navigate location 4");
+                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                        nodeState.target4_x, nodeState.target4_y, nodeState.target4_w));
                 } else {
+                    ROS_INFO("Command to STOP any active driving  using %s", controlMode.c_str());
                     cmd_vel_msg.linear.x = 0;
                     cmd_vel_msg.angular.z = 0;
                     cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
                 }
 
-            } else if (button == buttonMap.buttonNav1) {
-                ROS_INFO("Command to Navigate location 1");
-                pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                    nodeState.target1_x, nodeState.target1_y));
-
-            } else if (button == buttonMap.buttonNav2) {
-                ROS_INFO("Command to Navigate location 2");
-                pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 2", 
-                    nodeState.target2_x, nodeState.target2_y));
-
-            } else if (button == buttonMap.buttonNav3) {
-                ROS_INFO("Command to Navigate location 3");
-                pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                    nodeState.target3_x, nodeState.target3_y));
-
-            } else if (button == buttonMap.buttonNav4) {
-                ROS_INFO("Command to Navigate location 4");
-                pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                    nodeState.target4_x, nodeState.target1_y));
-
             } else if (button == buttonMap.buttonReset) {
+                // TODO: Reset ctrl Not implemented. Perhaps best if we do reset with multiple button code?
                 ROS_INFO("Reset controller.");
                 drive_resetCtrl();
 
@@ -663,7 +730,6 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
         ROS_DEBUG("Got joystick input with no button pressed            [%d buttons %d axes]",
             joy->buttons.size(), joy->axes.size());
     }
-
 }
 
 
@@ -680,14 +746,24 @@ int main(int argc, char** argv)
     ros::Rate loop_rate(LOOPS_PER_SEC);
 
     int joyType = JOYSTICK_XBOX;
-    if (fetchIntRosParam(nh, "/joy_input/joystick_type", joyType)) {
-      if (joy_input.setJoystickType(joyType) < 0) {
-          ROS_ERROR("%s: Illegal joystick type of %d. XBOX=%d PS3=%d",THIS_NODE_NAME,
+    // if (fetchIntRosParam(nh, "/joy_input/joystick_type", joyType)) {
+    // }
+    if (joy_input.setJoystickType(joyType) < 0) {
+        ROS_ERROR("%s: Illegal joystick type of %d. XBOX=%d PS3=%d",THIS_NODE_NAME,
+            joyType, JOYSTICK_XBOX, JOYSTICK_PS3);
+    } else {
+        ROS_INFO("%s: Joystick type is set to %d. XBOX=%d PS3=%d",THIS_NODE_NAME,
               joyType, JOYSTICK_XBOX, JOYSTICK_PS3);
-      }
     }
-    ROS_INFO("%s: Joystick type is set to %d. XBOX=%d PS3=%d",THIS_NODE_NAME,
-              joyType, JOYSTICK_XBOX, JOYSTICK_PS3);
+
+    // Set a few default params in case not preset as ros params
+    joy_input.nodeState.cmdVelSpeed         = (double)(DEFAULT_SPEED);
+    joy_input.nodeState.cmdVelTurnSpeed     = (double)(DEFAULT_TURNING);
+    joy_input.nodeState.cmdVelJoyMax        = AXIS_LINEAR_SCALE;
+    joy_input.nodeState.cmdVelJoyTurnMax    = AXIS_ANGULAR_SCALE;
+    joy_input.nodeState.directHwSpeed       = (double)(DEFAULT_SPEED);
+    joy_input.nodeState.directHwTurnSpeed   = (double)(DEFAULT_TURNING);
+
 
     // We are going to refresh parameters from time to time so those go in a refresh utility
     refreshBotStateParams(nh, joy_input.nodeState);
