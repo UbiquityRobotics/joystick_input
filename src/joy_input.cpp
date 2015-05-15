@@ -34,7 +34,7 @@
 typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
 #define THIS_NODE_NAME	"joy_input"    // Node name hard coded
-#define LOOPS_PER_SEC   10
+#define LOOPS_PER_SEC   5
 
 // Locate these in a system-wide include which I am not aware of at this time
 #define  SERIAL_DEV_TO_MOTOR_DRIVER   "/dev/ttyAMA0"    // Raspberry Pi main serial port
@@ -111,6 +111,8 @@ typedef struct axisMap_t {
 
 // A poor mans state for this node
 typedef struct NodeState {
+    double cmdVelThrottle;     // The loop speed BE CAREFUL!
+
     bool   disableNavStack;    // If set non-zero we disable nav stack code
 
     double cmdVelSpeed;        // The velocity used for simple button twist velocity
@@ -411,10 +413,12 @@ int drive_SetWheelSpeeds(int rightSpeed, int leftSpeed)
 // The goal types below have to be contained in a BotGoal context or they don't have much meaning
 // Some Goals are direct commands and some require logic such as search for an object.
 enum MoveGoalType {
-        G_NONE,                 // Used if a goal is not required cases such as we finished last goal
-        G_CLEAR_GOALS,          // Clear the list of goals (as sort of reset of next goals
-        G_MOVE_TO_MAP_LOCATION, // Move to some specific location on the map
-        G_MOVE_A_DISTANCE       // Move for a given distance in x and y
+        G_NONE,                  // Used if a goal is not required cases such as we finished last goal
+        G_CLEAR_GOALS,           // Clear the list of goals (as sort of reset of next goals
+        G_MOVE_CMD_VEL_BUTTON,   // Move with a velocity and angle using /cmd_vel but with button source
+        G_MOVE_CMD_VEL_JOYSTICK, // Move with a velocity and angle using /cmd_vel but with button source
+        G_MOVE_TO_MAP_LOCATION,  // Move to some specific location on the map
+        G_MOVE_A_DISTANCE        // Move for a given distance in x and y
 };
 
 
@@ -423,9 +427,9 @@ class MoveGoal {
     private:
     MoveGoalType type;    // The goal identifier or type
     std::string desc;     // String that can be used to describe this goal
-    float    x;          // X Coordinate this goal refers to
-    float    y;          // Y Coordinate this goal refers to
-    float    w;          // Orientation
+    float    x;          //  A value to be used based on MoveGoalType context
+    float    y;          //  A value to be used based on MoveGoalType context
+    float    w;          //  A value to be used based on MoveGoalType context
     float    z;          // An X Coordinate this goal refers to
     float    speed;      // A speed we may wish to specify
     ros::Time startTime;  // Time we started this goal in system clock units
@@ -439,12 +443,12 @@ class MoveGoal {
         type(G_NONE), desc("Goal"), x(0.0), y(0.0), z(0.0), w(0.0),
         speed(0.0), startTime(ros::Time::now()), duration(0.0), timeout(0.0) {}
 
-    MoveGoal(MoveGoalType t, float xpos, float ypos, float wpos) :
-        type(t), desc("Goal"), x(xpos), y(ypos), z(0.0), w(wpos),
+    MoveGoal(MoveGoalType t, float xval, float yval, float wval) :
+        type(t), desc("Goal"), x(xval), y(yval), z(0.0), w(wval),
         speed(0.0), startTime(ros::Time::now()), duration(0.0), timeout(0.0) {}
 
-    MoveGoal(MoveGoalType t, std::string dstr, float xpos, float ypos, float wpos) :
-        type(t), desc(dstr), x(xpos), y(ypos), z(0.0), w(wpos),
+    MoveGoal(MoveGoalType t, std::string dstr, float xval, float yval, float wval) :
+        type(t), desc(dstr), x(xval), y(yval), z(0.0), w(wval),
         speed(0.0), startTime(ros::Time::now()), duration(0.0), timeout(0.0) {}
 
     // getters
@@ -484,13 +488,13 @@ private:
 
     int linear_, angular_;
     double l_scale_, a_scale_;
-    ros::Publisher  cmd_vel_pub_;
     ros::Subscriber joy_sub_;
 
 public:
     JoyInput();
 
     NodeState nodeState;
+    ros::Publisher  cmd_vel_pub_;      // TODO:  This should be private and an api pushes to cmd_vel
 
     ButtonMap buttonMap;
     AxisMap   axisMap;
@@ -596,9 +600,6 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 {
     int button = -1;
 
-    // Initializes with zeros by default.
-    geometry_msgs::Twist cmd_vel_msg;
-
     // Get option from button if we are doing DIRECT hw control with the 4 colored keys
     bool direct_serial_cmd_vel_mode = false;   // Default is to use ros twist topic
     if (joy->buttons.size() >= buttonMap.buttonHwDirect) {
@@ -620,16 +621,19 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
     }
 
     if (enable_joy_cmd_vel) {
+        double driveSpeed = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
+        double turnSpeed  = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
+
         // Pull the joysticks for forward and turning off of /joy topic
-        cmd_vel_msg.linear.x = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
-        cmd_vel_msg.angular.z = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
-
-        // Publish classic 'twist' velocities to the rest of the system
-        cmd_vel_pub_.publish(cmd_vel_msg);
-
+        pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick driving using /cmd_vel",
+            driveSpeed, turnSpeed, 0.0));
     } else {
         // If the enable button is not active, send an all stop twist message
-        cmd_vel_pub_.publish(cmd_vel_msg);
+        double driveSpeed = 0.0;
+        double turnSpeed  = 0.0;
+
+        pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick STOP driving using /cmd_vel",
+            driveSpeed, turnSpeed, 0.0));
     }
 
     /*
@@ -656,62 +660,69 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 
             } else if (button == buttonMap.buttonForwardNav1) {
                 if (direct_serial_cmd_vel_mode) {
-                    ROS_INFO("Command to start forward drive mode using %s", controlMode.c_str());
+                    ROS_INFO("%s: Drive FORWARD with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
+                        nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
                     drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 1");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target1_x, nodeState.target1_y, nodeState.target1_w ));
                 } else {
-                    ROS_INFO("Command to start forward drive mode using %s", controlMode.c_str());
-                    cmd_vel_msg.linear.x = nodeState.cmdVelSpeed;
-                    cmd_vel_msg.angular.z = 0;
-                    cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
+                    double turnSpeed = 0.0;
+                    ROS_INFO("%s: Drive FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
+                         nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
+                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move FORWARD using /cmd_vel",
+                        nodeState.cmdVelSpeed, turnSpeed, 0.0));
                 }
 
             } else if (button == buttonMap.buttonRightNav2) {
                 if (direct_serial_cmd_vel_mode) {
-                    ROS_INFO("Command to start right   drive mode using %s", controlMode.c_str());
+                    ROS_INFO("%s: Drive RIGHT   with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
+                        nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
                     drive_SetWheelSpeeds((int)nodeState.directHwTurnSpeed,(int)nodeState.directHwSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 2");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target2_x, nodeState.target2_y, nodeState.target2_w));
                 } else {
-                    ROS_INFO("Command to start right   drive mode using %s", controlMode.c_str());
-                    cmd_vel_msg.linear.x = nodeState.cmdVelSpeed;
-                    cmd_vel_msg.angular.z = nodeState.cmdVelTurnSpeed;
-                    cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
+                    double turnSpeed = nodeState.cmdVelTurnSpeed;
+                    ROS_INFO("%s: Drive RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
+                         nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
+                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
+                        nodeState.cmdVelSpeed, turnSpeed, 0.0));
                 }
 
             } else if (button == buttonMap.buttonLeftNav3) {
                 if (direct_serial_cmd_vel_mode) {
-                    ROS_INFO("Command to start left    drive mode using %s", controlMode.c_str());
+                    ROS_INFO("%s: Drive LEFT    with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
+                        nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
                     drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwTurnSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 3");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
                 } else {
-                    ROS_INFO("Command to start left    drive mode using %s", controlMode.c_str());
-                    cmd_vel_msg.linear.x = nodeState.cmdVelSpeed;
-                    cmd_vel_msg.angular.z = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
-                    cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
+                    double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
+                    ROS_INFO("%s: Drive LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
+                         nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
+                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
+                        nodeState.cmdVelSpeed, turnSpeed, 0.0));
                 }
 
             } else if (button == buttonMap.buttonStopNav4) {
                 if (direct_serial_cmd_vel_mode) {
-                    ROS_INFO("Command to STOP any active driving  using %s", controlMode.c_str());
+                    ROS_INFO("%s: Drive STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
                     drive_SetWheelSpeeds(0,0);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 4");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target4_x, nodeState.target4_y, nodeState.target4_w));
                 } else {
-                    ROS_INFO("Command to STOP any active driving  using %s", controlMode.c_str());
-                    cmd_vel_msg.linear.x = 0;
-                    cmd_vel_msg.angular.z = 0;
-                    cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities 
+                    double driveSpeed = 0.0;
+                    double turnSpeed  = 0.0;
+                    ROS_INFO("%s: Drive STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
+                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "STOP driving using /cmd_vel",
+                        driveSpeed, turnSpeed, 0.0));
                 }
 
             } else if (button == buttonMap.buttonReset) {
@@ -742,8 +753,6 @@ int main(int argc, char** argv)
 
     ros::NodeHandle nh;
 
-    // Define our main loop rate as a ROS rate and we will let ROS do waits between loops
-    ros::Rate loop_rate(LOOPS_PER_SEC);
 
     int joyType = JOYSTICK_XBOX;
     // if (fetchIntRosParam(nh, "/joy_input/joystick_type", joyType)) {
@@ -783,10 +792,17 @@ int main(int argc, char** argv)
   
     move_base_msgs::MoveBaseGoal mbGoal;
     mbGoal.target_pose.header.frame_id = "base_link";
+    geometry_msgs::Twist cmd_vel_msg;
+
+    double loop_rate_setting = 5.0;
+
+    // Define our main loop rate as a ROS rate and we will let ROS do waits between loops
+    ros::Rate loop_rate(LOOPS_PER_SEC);
 
     int loopCount = 0;
     while (ros::ok())
     {
+
         if ((loopCount % (LOOPS_PER_SEC*5))== 1) { // pull in any changed parameters via ros param server
             refreshBotStateParams(nh, joy_input.nodeState);
         }
@@ -799,6 +815,14 @@ int main(int argc, char** argv)
                goal.getX(), goal.getY(), goal.getZ(), goal.getW());
 
            switch (goal.getType()) {
+               case  G_MOVE_CMD_VEL_JOYSTICK:
+                    // TODO:   Joystick may require a filtering action here and take only last one 
+               case  G_MOVE_CMD_VEL_BUTTON:         
+                    cmd_vel_msg.linear.x  =  goal.getX();
+                    cmd_vel_msg.angular.z =  goal.getY();
+                    joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
+                    break;
+
                case  G_MOVE_TO_MAP_LOCATION:    // Move to some specific location on the map
 
                    // TODO!!! Put this messy sending stuff in a helper !!!
