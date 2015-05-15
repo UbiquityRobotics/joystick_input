@@ -730,11 +730,12 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
+                    double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
                     double turnAngle = (double)(-1.0) * nodeState.cmdVelTurnAngle;
                     ROS_INFO("%s: Drive LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
-                         nodeState.cmdVelTurnSpeed, turnAngle, controlMode.c_str());
+                         turnSpeed, turnAngle, controlMode.c_str());
                     pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
-                        nodeState.cmdVelTurnSpeed, turnAngle, 0.0));
+                        turnSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonStopNav4) {
