@@ -6,6 +6,8 @@
   <!-- Joystick input node -->
   <node name="joy_input" pkg="joy_input" type="joy_input" output="screen" respawn="true">
     <param name="/disable_nav_stack"        value="1" />
+
+    <param name="/enable_joystick"          value="0" />    <!-- turned off bat-handle as overruns system -->
     <param name="/joystick_type"            value="0" />    <!-- XBOX 360 = 0    PS3 = 1 -->
 
     <!-- Speeds used for move buttons and max joystick for joystick moves -->
@@ -15,6 +17,8 @@
     <param name="/cmd_vel_joy_turn_max"   value="4.00" />
     <param name="/direct_hw_speed"        value="7.00" />
     <param name="/direct_hw_turn_speed"   value="5.00" />
+
+    <param name="/cmd_vel_msg_per_sec"    value="4.00" />
 
     <!-- Navigation target points in x y and w for orientation -->
     <param name="/target_1_x"         value="0.00" />

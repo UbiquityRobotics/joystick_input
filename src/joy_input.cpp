@@ -113,8 +113,11 @@ typedef struct axisMap_t {
 typedef struct NodeState {
     double cmdVelThrottle;     // The loop speed BE CAREFUL!
 
+    bool   enableJoystick;     // If set non-zero we allow the joystick bat handle operations
+
     bool   disableNavStack;    // If set non-zero we disable nav stack code
 
+    double cmdVelMsgPerSec;    // loop speed that throttles reading of goals (ros loops per sec)
     double cmdVelSpeed;        // The velocity used for simple button twist velocity
     double cmdVelTurnSpeed;    // The velocity used for simple button twist turning 
 
@@ -209,6 +212,21 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
       ROS_INFO("%s: Navigation stack will be DISABLED. ", THIS_NODE_NAME);
       state.disableNavStack = 1;
     }
+  }
+  paramInt = state.enableJoystick;
+  if (fetchIntRosParam(nh, "/joy_input/enable_joystick", paramInt)) {
+    if (paramInt == 0) {
+      ROS_INFO("%s: The joystick bat-handle will be DISABLED. ", THIS_NODE_NAME);
+      state.enableJoystick = 0;
+    } else {
+      ROS_INFO("%s: The joystick bat-handle will be ENABLED. ", THIS_NODE_NAME);
+      state.enableJoystick = 1;
+    }
+  }
+
+  paramFloat = state.cmdVelMsgPerSec;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_msg_per_sec", paramFloat)) {
+    state.cmdVelMsgPerSec = paramFloat;
   }
 
   paramFloat = state.cmdVelSpeed;
@@ -615,25 +633,27 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
     /*
      * Twist topic output on joystick with button press
      */
-    bool enable_joy_cmd_vel = true;   // Default is always enable joystick to cmd_vel twist output
+    bool enable_control = true;   // Default is always enable joystick to cmd_vel twist output
     if(joy->buttons.size() >= buttonMap.buttonCmdVel) {
-        enable_joy_cmd_vel = joy->buttons[buttonMap.buttonCmdVel];
+        enable_control = joy->buttons[buttonMap.buttonCmdVel];
     }
 
-    if (enable_joy_cmd_vel) {
-        double driveSpeed = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
-        double turnSpeed  = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
+    if (nodeState.enableJoystick > 0) {
+        if (enable_control) {
+            double driveSpeed = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
+            double turnSpeed  = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
 
-        // Pull the joysticks for forward and turning off of /joy topic
-        pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick driving using /cmd_vel",
-            driveSpeed, turnSpeed, 0.0));
-    } else {
-        // If the enable button is not active, send an all stop twist message
-        double driveSpeed = 0.0;
-        double turnSpeed  = 0.0;
+            // Pull the joysticks for forward and turning off of /joy topic
+            pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick driving using /cmd_vel",
+                driveSpeed, turnSpeed, 0.0));
+        } else {
+            // If the enable button is not active, send an all stop twist message
+            double driveSpeed = 0.0;
+            double turnSpeed  = 0.0;
 
-        pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick STOP driving using /cmd_vel",
-            driveSpeed, turnSpeed, 0.0));
+            pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick STOP driving using /cmd_vel",
+                driveSpeed, turnSpeed, 0.0));
+        }
     }
 
     /*
@@ -667,7 +687,7 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     ROS_INFO("Command to Navigate location 1");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target1_x, nodeState.target1_y, nodeState.target1_w ));
-                } else {
+                } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnSpeed = 0.0;
                     ROS_INFO("%s: Drive FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
@@ -684,7 +704,7 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     ROS_INFO("Command to Navigate location 2");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target2_x, nodeState.target2_y, nodeState.target2_w));
-                } else {
+                } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnSpeed = nodeState.cmdVelTurnSpeed;
                     ROS_INFO("%s: Drive RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
@@ -701,7 +721,7 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     ROS_INFO("Command to Navigate location 3");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
-                } else {
+                } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
                     ROS_INFO("%s: Drive LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
@@ -717,7 +737,7 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     ROS_INFO("Command to Navigate location 4");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target4_x, nodeState.target4_y, nodeState.target4_w));
-                } else {
+                } else {   // ALWAYS let stop get through
                     double driveSpeed = 0.0;
                     double turnSpeed  = 0.0;
                     ROS_INFO("%s: Drive STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
@@ -794,7 +814,7 @@ int main(int argc, char** argv)
     mbGoal.target_pose.header.frame_id = "base_link";
     geometry_msgs::Twist cmd_vel_msg;
 
-    double loop_rate_setting = 5.0;
+    double loop_rate_setting = joy_input.nodeState.cmdVelMsgPerSec;
 
     // Define our main loop rate as a ROS rate and we will let ROS do waits between loops
     ros::Rate loop_rate(LOOPS_PER_SEC);
@@ -802,9 +822,9 @@ int main(int argc, char** argv)
     int loopCount = 0;
     while (ros::ok())
     {
-
         if ((loopCount % (LOOPS_PER_SEC*5))== 1) { // pull in any changed parameters via ros param server
             refreshBotStateParams(nh, joy_input.nodeState);
+            ros::Rate loop_rate(joy_input.nodeState.cmdVelMsgPerSec);
         }
 
         MoveGoal goal;
