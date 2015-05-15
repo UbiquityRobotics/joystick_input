@@ -118,8 +118,10 @@ typedef struct NodeState {
     bool   disableNavStack;    // If set non-zero we disable nav stack code
 
     double cmdVelMsgPerSec;    // loop speed that throttles reading of goals (ros loops per sec)
+
     double cmdVelSpeed;        // The velocity used for simple button twist velocity
     double cmdVelTurnSpeed;    // The velocity used for simple button twist turning 
+    double cmdVelTurnAngle;    // The angle    used for simple button twist turning 
 
     double cmdVelJoyMax;       // The scaling factor used forward/back joystick gain
     double cmdVelJoyTurnMax;   // The scaling factor used forward/back joystick gain
@@ -236,6 +238,11 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
   paramFloat = state.cmdVelTurnSpeed;
   if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_turn_speed", paramFloat)) {
     state.cmdVelTurnSpeed = paramFloat;
+  }
+
+  paramFloat = state.cmdVelTurnAngle;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_turn_angle", paramFloat)) {
+    state.cmdVelTurnAngle = paramFloat;
   }
 
   paramFloat = state.cmdVelJoyMax;
@@ -688,45 +695,46 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target1_x, nodeState.target1_y, nodeState.target1_w ));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
-                    double turnSpeed = 0.0;
+                    double turnAngle = 0.0;
                     ROS_INFO("%s: Drive FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
-                         nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
+                         nodeState.cmdVelSpeed, turnAngle, controlMode.c_str());
                     pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move FORWARD using /cmd_vel",
-                        nodeState.cmdVelSpeed, turnSpeed, 0.0));
+                        nodeState.cmdVelSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonRightNav2) {
                 if (direct_serial_cmd_vel_mode) {
+                    double slowWheelSpeed = 0.0;
                     ROS_INFO("%s: Drive RIGHT   with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
-                        nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
-                    drive_SetWheelSpeeds((int)nodeState.directHwTurnSpeed,(int)nodeState.directHwSpeed);
+                        slowWheelSpeed, nodeState.directHwTurnSpeed, controlMode.c_str());
+                    drive_SetWheelSpeeds((int)0.0,(int)nodeState.directHwTurnSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 2");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target2_x, nodeState.target2_y, nodeState.target2_w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
-                    double turnSpeed = nodeState.cmdVelTurnSpeed;
                     ROS_INFO("%s: Drive RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
-                         nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
+                         nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, controlMode.c_str());
                     pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
-                        nodeState.cmdVelSpeed, turnSpeed, 0.0));
+                        nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonLeftNav3) {
                 if (direct_serial_cmd_vel_mode) {
+                    double slowWheelSpeed = 0.0;
                     ROS_INFO("%s: Drive LEFT    with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
-                        nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
-                    drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwTurnSpeed);
+                        nodeState.directHwTurnSpeed, slowWheelSpeed, controlMode.c_str());
+                    drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)slowWheelSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 3");
                     pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
-                    double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
+                    double turnAngle = (double)(-1.0) * nodeState.cmdVelTurnAngle;
                     ROS_INFO("%s: Drive LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
-                         nodeState.cmdVelSpeed, turnSpeed, controlMode.c_str());
+                         nodeState.cmdVelTurnSpeed, turnAngle, controlMode.c_str());
                     pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
-                        nodeState.cmdVelSpeed, turnSpeed, 0.0));
+                        nodeState.cmdVelTurnSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonStopNav4) {
