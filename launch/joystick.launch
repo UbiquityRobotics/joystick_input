@@ -12,9 +12,9 @@
 
     <!-- Speeds used for move buttons and max joystick for joystick moves -->
     <param name="/cmd_vel_speed"          value="5.00" />
-    <param name="/cmd_vel_turn_speed"     value="3.00" />
+    <param name="/cmd_vel_turn_speed"     value="90.00" />
     <param name="/cmd_vel_joy_max"        value="6.00" />
-    <param name="/cmd_vel_joy_turn_max"   value="4.00" />
+    <param name="/cmd_vel_joy_turn_max"   value="0.00" />
     <param name="/direct_hw_speed"        value="7.00" />
     <param name="/direct_hw_turn_speed"   value="5.00" />
 
