@@ -5,20 +5,24 @@
   
   <!-- Joystick input node -->
   <node name="joy_input" pkg="joy_input" type="joy_input" output="screen" respawn="true">
-    <param name="/disable_nav_stack"        value="1" />
-
+    <param name="/disable_nav_stack"        value="1" />    <!-- Set to 0 to enable publishing Nav targets to Nav stack -->
     <param name="/enable_joystick"          value="0" />    <!-- turned off bat-handle as overruns system -->
     <param name="/joystick_type"            value="0" />    <!-- XBOX 360 = 0    PS3 = 1 -->
 
     <!-- Speeds used for move buttons and max joystick for joystick moves -->
-    <param name="/cmd_vel_speed"          value="5.00" />
-    <param name="/cmd_vel_turn_speed"     value="90.00" />
-    <param name="/cmd_vel_joy_max"        value="6.00" />
-    <param name="/cmd_vel_joy_turn_max"   value="0.00" />
-    <param name="/direct_hw_speed"        value="7.00" />
-    <param name="/direct_hw_turn_speed"   value="5.00" />
-
     <param name="/cmd_vel_msg_per_sec"    value="4.00" />
+
+    <!-- Speeds used for move buttons and max joystick for joystick moves -->
+    <param name="/cmd_vel_speed"          value="5.00" />   <!-- Sets the forward speed for buttons -->
+    <param name="/cmd_vel_turn_speed"     value="90.00" />  <!-- Sets the wheel speed for turn right or left -->
+    <param name="/cmd_vel_turn_angle"     value="3.00" />   <!-- Sets the turn  angle rad per sec for turn right or left -->
+
+    <param name="/cmd_vel_joy_max"        value="7.00" />   <!-- Sets the joystick max forward or back (negative) value -->
+    <param name="/cmd_vel_joy_turn_max"   value="5.00" />   <!-- Sets the joystick max right or left value -->
+
+    <param name="/direct_hw_speed"        value="7.00" />   <!-- Sets the drive speed for direct both wheels -->
+    <param name="/direct_hw_turn_speed"   value="0.00" />   <!-- Sets the direct serial slower wheel speed for turn right or left -->
+
 
     <!-- Navigation target points in x y and w for orientation -->
     <param name="/target_1_x"         value="0.00" />
