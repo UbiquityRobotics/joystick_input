@@ -34,7 +34,7 @@
 typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
 #define THIS_NODE_NAME	"joy_input"    // Node name hard coded
-#define LOOPS_PER_SEC   5
+#define LOOPS_PER_SEC   4
 
 // Locate these in a system-wide include which I am not aware of at this time
 #define  SERIAL_DEV_TO_MOTOR_DRIVER   "/dev/ttyAMA0"    // Raspberry Pi main serial port
@@ -505,7 +505,11 @@ class JoyInput
 private:
     void joyCallback(const sensor_msgs::Joy::ConstPtr& joy);
 
-    std::queue<MoveGoal> moveGoalQueue;
+    // A queue of button presses collected in callback is processed in the main loop
+    std::queue<MoveGoal> buttonGoalQueue;
+
+    // A queue of joystick actions is collected in callback is processed in the main loop
+    std::queue<MoveGoal> joystickGoalQueue;
 
     ros::NodeHandle nh_;
 
@@ -524,23 +528,47 @@ public:
     ButtonMap buttonMap;
     AxisMap   axisMap;
 
-    // Here we can push a goal or pull a goal
-    int numMoveGoals() {
-        int numGoals = (int)moveGoalQueue.size();
+    //
+    // APIs for button initiated goals
+    //
+    int numButtonGoals() {
+        int numGoals = (int)buttonGoalQueue.size();
         return numGoals;
     }
 
-    int pushMoveGoal( MoveGoal moveGoal) {
-        moveGoalQueue.push(moveGoal);
+    int pushButtonGoal( MoveGoal moveGoal) {
+        buttonGoalQueue.push(moveGoal);
     }
 
     // Pop off a goal but if there are none, return 0
-    int popMoveGoal(MoveGoal &moveGoal) {
-        if (moveGoalQueue.empty()) {
+    int popButtonGoal(MoveGoal &moveGoal) {
+        if (buttonGoalQueue.empty()) {
             return 0;
         }
-        moveGoal = moveGoalQueue.front();
-        moveGoalQueue.pop();
+        moveGoal = buttonGoalQueue.front();
+        buttonGoalQueue.pop();
+        return 1;
+    }
+
+    //
+    // APIs for joystick initiated goals
+    //
+    int numJoystickGoals() {
+        int numGoals = (int)joystickGoalQueue.size();
+        return numGoals;
+    }
+
+    int pushJoystickGoal( MoveGoal moveGoal) {
+        joystickGoalQueue.push(moveGoal);
+    }
+
+    // Pop off a goal but if there are none, return 0
+    int popJoystickGoal(MoveGoal &moveGoal) {
+        if (joystickGoalQueue.empty()) {
+            return 0;
+        }
+        moveGoal = joystickGoalQueue.front();
+        joystickGoalQueue.pop();
         return 1;
     }
 
@@ -645,21 +673,24 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
         enable_control = joy->buttons[buttonMap.buttonCmdVel];
     }
 
-    if (nodeState.enableJoystick > 0) {
+    if (nodeState.enableJoystick) {
         if (enable_control) {
             double driveSpeed = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
             double turnSpeed  = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
 
             // Pull the joysticks for forward and turning off of /joy topic
-            pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick driving using /cmd_vel",
+            pushJoystickGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick driving using /cmd_vel",
                 driveSpeed, turnSpeed, 0.0));
         } else {
             // If the enable button is not active, send an all stop twist message
             double driveSpeed = 0.0;
             double turnSpeed  = 0.0;
 
-            pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick STOP driving using /cmd_vel",
-                driveSpeed, turnSpeed, 0.0));
+            // I go back and fourth on this.  I think if we are to issue stops on any joystick moves
+            // we have to be very careful as the joysticks tend to move on their own so this is 
+            // maybe only something to do if a real move happened recently AND joystick is near null now
+            // pushJoystickGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick STOP driving using /cmd_vel",
+            //     driveSpeed, turnSpeed, 0.0));
         }
     }
 
@@ -687,70 +718,70 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 
             } else if (button == buttonMap.buttonForwardNav1) {
                 if (direct_serial_cmd_vel_mode) {
-                    ROS_INFO("%s: Drive FORWARD with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
+                    ROS_INFO("%s: ButtonPress: FORWARD with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
                         nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
                     drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 1");
-                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target1_x, nodeState.target1_y, nodeState.target1_w ));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnAngle = 0.0;
-                    ROS_INFO("%s: Drive FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
+                    ROS_INFO("%s: ButtonPress: FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          nodeState.cmdVelSpeed, turnAngle, controlMode.c_str());
-                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move FORWARD using /cmd_vel",
+                    pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move FORWARD using /cmd_vel",
                         nodeState.cmdVelSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonRightNav2) {
                 if (direct_serial_cmd_vel_mode) {
                     double slowWheelSpeed = 0.0;
-                    ROS_INFO("%s: Drive RIGHT   with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
+                    ROS_INFO("%s: ButtonPress: RIGHT   with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
                         slowWheelSpeed, nodeState.directHwTurnSpeed, controlMode.c_str());
                     drive_SetWheelSpeeds((int)0.0,(int)nodeState.directHwTurnSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 2");
-                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target2_x, nodeState.target2_y, nodeState.target2_w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
-                    ROS_INFO("%s: Drive RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
+                    ROS_INFO("%s: ButtonPress: RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, controlMode.c_str());
-                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
+                    pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
                         nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonLeftNav3) {
                 if (direct_serial_cmd_vel_mode) {
                     double slowWheelSpeed = 0.0;
-                    ROS_INFO("%s: Drive LEFT    with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
+                    ROS_INFO("%s: ButtonPress: LEFT    with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
                         nodeState.directHwTurnSpeed, slowWheelSpeed, controlMode.c_str());
                     drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)slowWheelSpeed);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 3");
-                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
                     double turnAngle = (double)(-1.0) * nodeState.cmdVelTurnAngle;
-                    ROS_INFO("%s: Drive LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
+                    ROS_INFO("%s: ButtonPress: LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          turnSpeed, turnAngle, controlMode.c_str());
-                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
+                    pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
                         turnSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonStopNav4) {
                 if (direct_serial_cmd_vel_mode) {
-                    ROS_INFO("%s: Drive STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
+                    ROS_INFO("%s: ButtonPress: STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
                     drive_SetWheelSpeeds(0,0);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 4");
-                    pushMoveGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
                         nodeState.target4_x, nodeState.target4_y, nodeState.target4_w));
                 } else {   // ALWAYS let stop get through
                     double driveSpeed = 0.0;
                     double turnSpeed  = 0.0;
-                    ROS_INFO("%s: Drive STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
-                    pushMoveGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "STOP driving using /cmd_vel",
+                    ROS_INFO("%s: ButtonPress: STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
+                    pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "STOP driving using /cmd_vel",
                         driveSpeed, turnSpeed, 0.0));
                 }
 
@@ -823,68 +854,102 @@ int main(int argc, char** argv)
     mbGoal.target_pose.header.frame_id = "base_link";
     geometry_msgs::Twist cmd_vel_msg;
 
-    double loop_rate_setting = joy_input.nodeState.cmdVelMsgPerSec;
-
-    // Define our main loop rate as a ROS rate and we will let ROS do waits between loops
-    ros::Rate loop_rate(LOOPS_PER_SEC);
-
     int loopCount = 0;
     while (ros::ok())
     {
+
+        // Define our main loop rate as a ROS rate and we will let ROS do waits between loops
+        ros::Rate loop_rate(joy_input.nodeState.cmdVelMsgPerSec);
+
         if ((loopCount % (LOOPS_PER_SEC*5))== 1) { // pull in any changed parameters via ros param server
             refreshBotStateParams(nh, joy_input.nodeState);
-            ros::Rate loop_rate(joy_input.nodeState.cmdVelMsgPerSec);
         }
 
         MoveGoal goal;
-        if (joy_input.numMoveGoals() > 0)  {
-           joy_input.popMoveGoal(goal);
-           ROS_DEBUG("%s: Processing new goal of type %s with description '%s' with X= %f Y= %f Z= %f W= %f", 
-               THIS_NODE_NAME, goal.getTypeName().c_str(), goal.getDescription().c_str(), 
-               goal.getX(), goal.getY(), goal.getZ(), goal.getW());
+        int numButtonGoals = joy_input.numButtonGoals();
+        if (numButtonGoals > 0)  {
+            int remaining = numButtonGoals;
+            while (remaining > 0) {
+                // We are going to eat all goals but keep the last one only as a filter
+                joy_input.popButtonGoal(goal);
+                remaining -= 1;
+            }
 
-           switch (goal.getType()) {
-               case  G_MOVE_CMD_VEL_JOYSTICK:
-                    // TODO:   Joystick may require a filtering action here and take only last one 
-               case  G_MOVE_CMD_VEL_BUTTON:         
+            switch (goal.getType()) {
+                case  G_MOVE_CMD_VEL_BUTTON:
+                    ROS_INFO("%s: Publish last of %d button presses   to /cmd_vel desc: '%s' linear.x %f angular.z %f", 
+                        THIS_NODE_NAME, numButtonGoals, goal.getDescription().c_str(), 
+                        goal.getX(), goal.getY());
+
+                    // Publish a twist message to /cmd_vel as our output for this pass
                     cmd_vel_msg.linear.x  =  goal.getX();
                     cmd_vel_msg.angular.z =  goal.getY();
                     joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
                     break;
 
-               case  G_MOVE_TO_MAP_LOCATION:    // Move to some specific location on the map
 
-                   // TODO!!! Put this messy sending stuff in a helper !!!
-                   mbGoal.target_pose.header.stamp = ros::Time::now();
-                   mbGoal.target_pose.pose.position.x = goal.getX();
-                   mbGoal.target_pose.pose.position.y = goal.getY();
-                   mbGoal.target_pose.pose.orientation.w = goal.getW();
+                case  G_MOVE_TO_MAP_LOCATION:
+                    mbGoal.target_pose.header.stamp = ros::Time::now();
+                    mbGoal.target_pose.pose.position.x = goal.getX();
+                    mbGoal.target_pose.pose.position.y = goal.getY();
+                    mbGoal.target_pose.pose.orientation.w = goal.getW();
 
-                   if (joy_input.nodeState.disableNavStack == 0) {
-                       ROS_DEBUG("%s: Sending new MoveBaseGoal with user desc '%s' and X= %f Y= %f W= %f", 
-                           THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
+                    if (joy_input.nodeState.disableNavStack == 0) {
+                        ROS_DEBUG("%s: Publish new MoveBaseGoal with user desc '%s' and X= %f Y= %f W= %f", 
+                            THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
 
-                       ac.sendGoal(mbGoal);
+                        ac.sendGoal(mbGoal);
 
-                       ac.waitForResult();   // TODO: We really should be smarter than blind wait
+                        ac.waitForResult();   // TODO: We really should be smarter than blind wait
 
-                       if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
-                           ROS_INFO("%s: MoveBase with user desc '%s' to X= %f Y= %f W= %f SUCCEEDED!", 
-                               THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
-                       } else {
-                           ROS_ERROR("%s: MoveBase with user desc '%s' to X= %f Y= %f W= %f FAILED!", 
-                               THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
-                       }
-                   } else {
-                       ROS_ERROR("%s: MoveBase DISABLED but we got goal with desc '%s' to X= %f Y= %f W= %f", 
-                           THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
-                   }
-                   break;
-               default:
-                   ROS_INFO("%s: Unrecognized goal type %d with description '%s' with X= %f Y= %f ", THIS_NODE_NAME,
-                       goal.getType(), goal.getDescription().c_str(), goal.getX(), goal.getY());
-                   break;
-           }
+                        if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
+                            ROS_INFO("%s: MoveBase with user desc '%s' to X= %f Y= %f W= %f SUCCEEDED!", 
+                                THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
+                        } else {
+                            ROS_ERROR("%s: MoveBase with user desc '%s' to X= %f Y= %f W= %f FAILED!", 
+                                THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
+                        }
+                    } else {
+                        ROS_ERROR("%s: MoveBase DISABLED but we got goal with desc '%s' to X= %f Y= %f W= %f", 
+                            THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
+                    }
+                    break;
+
+                default:
+                    ROS_INFO("%s: Unrecognized goal type %d with description '%s' with X= %f Y= %f ", THIS_NODE_NAME,
+                        goal.getType(), goal.getDescription().c_str(), goal.getX(), goal.getY());
+                    break;
+            }
+        }   // End of button processing
+
+
+        // Joystick actions are also seen here but we ignore them if a button goal has been done this pass
+        int numJoystickGoals = joy_input.numJoystickGoals();
+        while (numJoystickGoals > 0)  {
+            int remaining = numJoystickGoals;
+            while (remaining > 0) {
+                // We are going to eat all goals but keep the last one only as a filter
+                joy_input.popJoystickGoal(goal);
+                remaining -= 1;
+            }
+  
+            // We are going to ignore all joystick goals if a button has been done this loop
+            if (numButtonGoals > 0) {
+                ROS_INFO("%s: Ignoring the pending %d joystick goals because a button was just processed.", 
+                    THIS_NODE_NAME, numJoystickGoals);
+                break;		// in case you were wondering why we used a while ... this is why.
+            }
+
+            ROS_INFO("%s: Publish last of %d joystick action to /cmd_vel with linear.x %f angular.z %f", 
+                THIS_NODE_NAME, numJoystickGoals, goal.getX(), goal.getY());
+
+            numJoystickGoals = 0;	// This allows us to exit the while
+
+            // Publish a twist message to /cmd_vel as our output for this pass
+            cmd_vel_msg.linear.x  =  goal.getX();
+            cmd_vel_msg.angular.z =  goal.getY();
+            joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
+
         }
 
         ros::spinOnce();
