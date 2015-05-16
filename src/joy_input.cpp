@@ -128,6 +128,8 @@ typedef struct NodeState {
 
     double directHwSpeed;      // The velocity used for simple button serial speed 
     double directHwTurnSpeed;  // The velocity used for simple button serial turning
+    double directHwRightBias;  // Multiplies right drive and can reverse or scale
+    double directHwLeftBias;   // Multiplies left  drive and can reverse or scale
 
 
     // These are target destinations that come in as ros params.
@@ -262,6 +264,14 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
   if (fetchFloatRosParam(nh, "/joy_input/direct_hw_turn_speed", paramFloat)) {
     state.directHwTurnSpeed = paramFloat;
   }
+  paramFloat = state.directHwRightBias;
+  if (fetchFloatRosParam(nh, "/joy_input/direct_hw_right_bias", paramFloat)) {
+    state.directHwRightBias = paramFloat;
+  }
+  paramFloat = state.directHwLeftBias;
+  if (fetchFloatRosParam(nh, "/joy_input/direct_hw_left_bias", paramFloat)) {
+    state.directHwLeftBias = paramFloat;
+  }
 
 
 
@@ -393,11 +403,11 @@ int drive_SetWheelSpeeds(int rightSpeed, int leftSpeed)
     int retCode = 0;
 
     // Optionally implement limit checks on speed once they are defined here
-	if ((rightSpeed < 0) || (rightSpeed > WHEEL_SPEED_MAX)) {
+	if ((rightSpeed < ((-1)* WHEEL_SPEED_MAX)) || (rightSpeed > WHEEL_SPEED_MAX)) {
 		ROS_ERROR("%s: Illegal right wheel drive level of %d [max = %d]", THIS_NODE_NAME, rightSpeed, WHEEL_SPEED_MAX);
 		return -1;
     }
-	if ((leftSpeed < 0) || (leftSpeed > WHEEL_SPEED_MAX)) {
+	if ((leftSpeed < ((-1)* WHEEL_SPEED_MAX)) || (leftSpeed > WHEEL_SPEED_MAX)) {
 		ROS_ERROR("%s: Illegal left wheel drive level of %d [max = %d]", THIS_NODE_NAME, leftSpeed, WHEEL_SPEED_MAX);
 		return -2;
     }
@@ -720,7 +730,8 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                 if (direct_serial_cmd_vel_mode) {
                     ROS_INFO("%s: ButtonPress: FORWARD with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
                         nodeState.directHwSpeed, nodeState.directHwSpeed, controlMode.c_str());
-                    drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)nodeState.directHwSpeed);
+                    drive_SetWheelSpeeds((int)(nodeState.directHwSpeed * nodeState.directHwRightBias),
+                                         (int)(nodeState.directHwSpeed)* nodeState.directHwLeftBias);
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 1");
                     pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
@@ -735,10 +746,10 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 
             } else if (button == buttonMap.buttonRightNav2) {
                 if (direct_serial_cmd_vel_mode) {
-                    double slowWheelSpeed = 0.0;
-                    ROS_INFO("%s: ButtonPress: RIGHT   with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
-                        slowWheelSpeed, nodeState.directHwTurnSpeed, controlMode.c_str());
-                    drive_SetWheelSpeeds((int)0.0,(int)nodeState.directHwTurnSpeed);
+                    ROS_INFO("%s: ButtonPress: RIGHT   with speed %3.1f using %s", THIS_NODE_NAME, 
+                        nodeState.directHwTurnSpeed, controlMode.c_str());
+                    drive_SetWheelSpeeds((int)((float)(-1.0) * nodeState.directHwSpeed * nodeState.directHwRightBias),
+                                         (int)(nodeState.directHwSpeed * nodeState.directHwLeftBias));
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 2");
                     pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
@@ -752,10 +763,10 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 
             } else if (button == buttonMap.buttonLeftNav3) {
                 if (direct_serial_cmd_vel_mode) {
-                    double slowWheelSpeed = 0.0;
-                    ROS_INFO("%s: ButtonPress: LEFT    with speeds [%3.1f,%3.1f] using %s", THIS_NODE_NAME, 
-                        nodeState.directHwTurnSpeed, slowWheelSpeed, controlMode.c_str());
-                    drive_SetWheelSpeeds((int)nodeState.directHwSpeed,(int)slowWheelSpeed);
+                    ROS_INFO("%s: ButtonPress: LEFT    with speed %3.1f using %s", THIS_NODE_NAME, 
+                        nodeState.directHwTurnSpeed, controlMode.c_str());
+                    drive_SetWheelSpeeds((int)(nodeState.directHwSpeed * nodeState.directHwRightBias),
+                                         (int)((float)(-1.0) * nodeState.directHwSpeed * nodeState.directHwLeftBias));
                 } else if (nav_goto_target_mode) {
                     ROS_INFO("Command to Navigate location 3");
                     pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
