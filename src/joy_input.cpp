@@ -41,6 +41,7 @@ typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseC
 #define  WHEEL_SPEED_MAX          20                // max wheel speed
 #define  DEFAULT_SPEED            10
 #define  DEFAULT_TURNING          5
+#define  DEFAULT_JOYSTICK_DEADZONE ((double)(0.02))
 
 // Button definitions for the array place used for a given controller
 // use rostopic echo /joy for your controller and define buttons below
@@ -116,6 +117,8 @@ typedef struct NodeState {
     bool   enableJoystick;     // If set non-zero we allow the joystick bat handle operations
 
     bool   disableNavStack;    // If set non-zero we disable nav stack code
+
+    double joystickDeadzone;   // Define a center zone where 0 is used within this band
 
     double cmdVelMsgPerSec;    // loop speed that throttles reading of goals (ros loops per sec)
 
@@ -226,6 +229,11 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
       ROS_INFO("%s: The joystick bat-handle will be ENABLED. ", THIS_NODE_NAME);
       state.enableJoystick = 1;
     }
+  }
+
+  paramFloat = state.joystickDeadzone;
+  if (fetchFloatRosParam(nh, "/joy_input/joystick_deadzone", paramFloat)) {
+    state.joystickDeadzone = paramFloat;
   }
 
   paramFloat = state.cmdVelMsgPerSec;
@@ -839,6 +847,7 @@ int main(int argc, char** argv)
     // Set a few default params in case not preset as ros params
     joy_input.nodeState.cmdVelSpeed         = (double)(DEFAULT_SPEED);
     joy_input.nodeState.cmdVelTurnSpeed     = (double)(DEFAULT_TURNING);
+    joy_input.nodeState.joystickDeadzone    = DEFAULT_JOYSTICK_DEADZONE;
     joy_input.nodeState.cmdVelJoyMax        = AXIS_LINEAR_SCALE;
     joy_input.nodeState.cmdVelJoyTurnMax    = AXIS_ANGULAR_SCALE;
     joy_input.nodeState.directHwSpeed       = (double)(DEFAULT_SPEED);
@@ -951,14 +960,28 @@ int main(int argc, char** argv)
                 break;		// in case you were wondering why we used a while ... this is why.
             }
 
-            ROS_INFO("%s: Publish last of %d joystick action to /cmd_vel with linear.x %f angular.z %f", 
-                THIS_NODE_NAME, numJoystickGoals, goal.getX(), goal.getY());
+
+            // Enforce joystick deadzone for both x,y as 0 if joystick is at nominal null center
+            double joystick_X = goal.getX();
+            double joystick_Y = goal.getY();
+            std::string deadzoneMode = ""; 
+            if ((fabs(joystick_X) < joy_input.nodeState.joystickDeadzone) &&
+                (fabs(joystick_Y) < joy_input.nodeState.joystickDeadzone))    {
+              ROS_INFO("%s: Joystick  x %f z %f in deadzone of %f", THIS_NODE_NAME, 
+                goal.getX(), goal.getY(), joy_input.nodeState.joystickDeadzone);
+              joystick_X = 0.0;
+              joystick_Y = 0.0;
+              deadzoneMode = "[deadzone]";
+            }
+
+            ROS_INFO("%s: Publish last of %d joystick action to /cmd_vel with linear.x %f angular.z %f %s", 
+                THIS_NODE_NAME, numJoystickGoals, joystick_X, joystick_Y, deadzoneMode.c_str());
 
             numJoystickGoals = 0;	// This allows us to exit the while
 
             // Publish a twist message to /cmd_vel as our output for this pass
-            cmd_vel_msg.linear.x  =  goal.getX();
-            cmd_vel_msg.angular.z =  goal.getY();
+            cmd_vel_msg.linear.x  =  joystick_X;
+            cmd_vel_msg.angular.z =  joystick_Y; 
             joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
 
         }

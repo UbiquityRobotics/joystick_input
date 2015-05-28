@@ -20,10 +20,36 @@ The node now has ability to use  movebase specification to nav targets so we nee
 
 The node was written to support XBox 360 controller and PS3 bluetooth controller but the PS3 dongle needs to be able to be set to emulate XBox and only then will you have luck.   We have found that the  'Wireless PS3 Controller To PC USB Adapter [by Mayflash] works if set to Xinput when using PS3 controller.  The XBox dongle we have found to work is the 'PC Wireless Gaming Receiver' which says model 1086 on the tag near the usb plug.
 
-        Run the joystick driver using:   roslaunch joy_input joystick.launch
-        To see the drivers /joy topic:   rostopic echo /joy
-        Inspect joy topic and find the buttons and joystick axis your controller generates.
-        Modify the defines at the start of joy_input.cpp to match your controller if required.
+The parameters in joystick.launch are briefly discussed below but are commented in the launch file as well
+
+        enable_joystick           Set to 0 to disable joystick completely (not likely to be needed)
+        joystick_deadzone         Set this to change the deadzone where joystick returns 0 if lower 
+        cmd_vel_msg_per_sec       Max messages issued per second to throttle too many messages
+                                  This defaults to about 4 per second but you can set up to about 10.
+        cmd_vel_speed             The speed used for the forward button (not the joystick)
+        cmd_vel_angle             The angular speed used for the right or left button (not the joystick)
+        cmd_vel_joy_max           The joystick fwd/back max value for joystick pressed all the way
+        cmd_vel_joy_turn_max      The joystick right/left max value for joystick pressed all the way
+
+        disable_nav_stack         Set to 0 to disable move_base hotkeys programmed with target_N_x, y, z
+        target_N_x                Pre-programed move_base x,y,z values for wireless 'goto nav point' use
+
+The joy_input node consumes topic /joy and you may find it of value see the output of the required ros-indigo-joystick-drivers node using this command below.  If you don't see anything on /joy then the joy_input node will have no input.
+
+        rostopic echo /joy
+
+It is not likely that you will have issues but if you have some custom joystick that is recognized and output does come out on /joy but is different than expected then inspect joy topic and find the buttons and joystick axis your controller generates.  If then required, modify the defines at the start of joy_input.cpp to match your controller as required.
+
+## Running the Joystick Input Node
+
+The node is started using roslaunch and you may modify the parameters discussed in the configuration section by use of rosparam list then rosparam set <paramter_name> <value>  at runtime because the parameters are refreshed in the node.
+
+        roslaunch joy_input joystick.launch
+
+The window that starts the node will show the published /cmd_vel values of linear.x and angular.z.
+You may also find it of use to look at the /cmd_vel topic to see those values as follows
+
+        rostopic echo /cmd_vel
 
 ## Manual operation without a joystick
 
