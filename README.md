@@ -71,10 +71,10 @@ These 4 keys each have 3 functions depending on if any 'mode shift keys' are bei
 
 With no 'mode shift keys held' the 4 buttons will issue a fixed simple set of velocities to the /cmd_vel topic.   Default speeds will be used for these simple move functions.  A couple ros params will set these simple speeds.
 
-Forward:  The XBox yellow 'Y' (PS3 triangle)
-Stop:     The XBox green  'A' (PS3 X)
-Right:    The XBox red    'B' (PS3 circle)
-Left:     The XBox blue   'X' (PS3 square)
+    Forward:  The XBox yellow 'Y' (PS3 triangle)
+    Stop:     The XBox green  'A' (PS3 X)
+    Right:    The XBox red    'B' (PS3 circle)
+    Left:     The XBox blue   'X' (PS3 square)
 
 
 ## Direct Hardware Drive   
@@ -86,9 +86,10 @@ Uses XBox 'Back' button (PS3 'Select' button) as a Nav target specification 'mod
 
 When held down this causes the 4 colorful keys to issue movebase commands to the 4 configured targets.  Target definitions are given as x,y,w as ROS parameters in the launch file but will be re-read every 5 seconds or so to allow dynamic changing of target nav points as the bot is running.  You must use  rosparam set to change those if already running.
 
-Target1:  The XBox yellow 'Y' (PS3 triangle)
-Target2:  The XBox red    'B' (PS3 circle)
-Target3:  The XBox blue   'X' (PS3 square)
-Target4:  The XBox green  'A' (PS3 X)
+
+    Target1:  The XBox yellow 'Y' (PS3 triangle)
+    Target2:  The XBox red    'B' (PS3 circle)
+    Target3:  The XBox blue   'X' (PS3 square)
+    Target4:  The XBox green  'A' (PS3 X)
 
         
