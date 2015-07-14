@@ -14,12 +14,12 @@
     <param name="/cmd_vel_msg_per_sec"    value="4.00" />
 
     <!-- Speeds used for move buttons and max joystick for joystick moves -->
-    <param name="/cmd_vel_speed"          value="0.50" />   <!-- Sets the forward speed for buttons -->
+    <param name="/cmd_vel_speed"          value="0.25" />   <!-- Sets the forward speed for buttons -->
     <param name="/cmd_vel_turn_speed"     value="0.50" />   <!-- Sets the wheel speed for turn right or left -->
-    <param name="/cmd_vel_turn_angle"     value="0.50" />   <!-- Sets the turn  angle rad per sec for turn right or left -->
+    <param name="/cmd_vel_turn_angle"     value="2.00" />   <!-- Sets the turn  angle rad per sec for turn right or left -->
 
-    <param name="/cmd_vel_joy_max"        value="0.50" />   <!-- Sets the joystick max forward or back (negative) value -->
-    <param name="/cmd_vel_joy_turn_max"   value="0.50" />  <!-- Sets the joystick max right or left value and turn polarity -->
+    <param name="/cmd_vel_joy_max"        value="0.25" />   <!-- Sets the joystick max forward or back (negative) value -->
+    <param name="/cmd_vel_joy_turn_max"   value="2.00" />  <!-- Sets the joystick max right or left value and turn polarity -->
 
     <param name="/direct_hw_speed"        value="8.00" />   <!-- Sets the drive speed for direct both wheels -->
     <param name="/direct_hw_turn_speed"   value="1.00" />   <!-- Sets the direct serial slower wheel speed for turn right or left -->
