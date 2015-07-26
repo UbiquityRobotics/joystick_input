@@ -110,6 +110,13 @@ typedef struct axisMap_t {
 #define AXIS_LINEAR_SCALE    10.0
 #define AXIS_ANGULAR_SCALE   10.0
 
+// Here is the info required to issue a move_base goal location
+typedef struct moveGoalLocation_t {
+    double x;
+    double y;
+    double w;
+} MoveGoalLocation;
+
 // A poor mans state for this node
 typedef struct NodeState {
     double cmdVelThrottle;     // The loop speed BE CAREFUL!
@@ -137,21 +144,7 @@ typedef struct NodeState {
 
     // These are target destinations that come in as ros params.
     // These will go bye-bye for cleaner approach after big hoopla show in mid May 2015
-    double target1_x;
-    double target1_y;
-    double target1_w;
-
-    double target2_x;
-    double target2_y;
-    double target2_w;
-
-    double target3_x;
-    double target3_y;
-    double target3_w;
-
-    double target4_x;
-    double target4_y;
-    double target4_w;
+    MoveGoalLocation goalLocations[5];
 } NodeState;
 
 
@@ -282,60 +275,62 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
   }
 
 
-
-  // This is some really dirty 'just do it' code.  PLEASE don't show this to my mother ...  ;-)
-  paramFloat = state.target1_x;
+  // Load in goals for move_base
+  int goalNum = 1;
+  paramFloat = state.goalLocations[goalNum].x;;
   if (fetchFloatRosParam(nh, "/joy_input/target_1_x", paramFloat)) {
-    state.target1_x = paramFloat;
+    state.goalLocations[goalNum].x = paramFloat;
   }
-  paramFloat = state.target1_y;
+  paramFloat = state.goalLocations[goalNum].y;;
   if (fetchFloatRosParam(nh, "/joy_input/target_1_y", paramFloat)) {
-    state.target1_y = paramFloat;
+    state.goalLocations[goalNum].y = paramFloat;
   }
-  paramFloat = state.target1_w;
+  paramFloat = state.goalLocations[goalNum].w;;
   if (fetchFloatRosParam(nh, "/joy_input/target_1_w", paramFloat)) {
-    state.target1_w = paramFloat;
+    state.goalLocations[goalNum].w = paramFloat;
   }
 
-  paramFloat = state.target2_x;
+  goalNum = 2;
+  paramFloat = state.goalLocations[goalNum].x;;
   if (fetchFloatRosParam(nh, "/joy_input/target_2_x", paramFloat)) {
-    state.target2_x = paramFloat;
+    state.goalLocations[goalNum].x = paramFloat;
   }
-  paramFloat = state.target2_y;
+  paramFloat = state.goalLocations[goalNum].y;;
   if (fetchFloatRosParam(nh, "/joy_input/target_2_y", paramFloat)) {
-    state.target2_y = paramFloat;
+    state.goalLocations[goalNum].y = paramFloat;
   }
-  paramFloat = state.target2_w;
+  paramFloat = state.goalLocations[goalNum].w;;
   if (fetchFloatRosParam(nh, "/joy_input/target_2_w", paramFloat)) {
-    state.target2_w = paramFloat;
+    state.goalLocations[goalNum].w = paramFloat;
   }
 
-  paramFloat = state.target3_x;
+  goalNum = 3;
+  paramFloat = state.goalLocations[goalNum].x;;
   if (fetchFloatRosParam(nh, "/joy_input/target_3_x", paramFloat)) {
-    state.target3_x = paramFloat;
+    state.goalLocations[goalNum].x = paramFloat;
   }
-  paramFloat = state.target3_y;
+  paramFloat = state.goalLocations[goalNum].y;;
   if (fetchFloatRosParam(nh, "/joy_input/target_3_y", paramFloat)) {
-    state.target3_y = paramFloat;
+    state.goalLocations[goalNum].y = paramFloat;
   }
-  paramFloat = state.target3_w;
+  paramFloat = state.goalLocations[goalNum].w;;
   if (fetchFloatRosParam(nh, "/joy_input/target_3_w", paramFloat)) {
-    state.target3_w = paramFloat;
+    state.goalLocations[goalNum].w = paramFloat;
   }
 
-  paramFloat = state.target4_x;
+  goalNum = 4;
+  paramFloat = state.goalLocations[goalNum].x;;
   if (fetchFloatRosParam(nh, "/joy_input/target_4_x", paramFloat)) {
-    state.target4_x = paramFloat;
+    state.goalLocations[goalNum].x = paramFloat;
   }
-  paramFloat = state.target4_y;
+  paramFloat = state.goalLocations[goalNum].y;;
   if (fetchFloatRosParam(nh, "/joy_input/target_4_y", paramFloat)) {
-    state.target4_y = paramFloat;
+    state.goalLocations[goalNum].y = paramFloat;
   }
-  paramFloat = state.target4_w;
+  paramFloat = state.goalLocations[goalNum].w;;
   if (fetchFloatRosParam(nh, "/joy_input/target_4_w", paramFloat)) {
-    state.target4_w = paramFloat;
+    state.goalLocations[goalNum].w = paramFloat;
   }
-
 }
 
  /* --------------------------------------------------------------------------------
@@ -741,9 +736,16 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     drive_SetWheelSpeeds((int)(nodeState.directHwSpeed * nodeState.directHwRightBias),
                                          (int)(nodeState.directHwSpeed)* nodeState.directHwLeftBias);
                 } else if (nav_goto_target_mode) {
-                    ROS_INFO("Command to Navigate location 1");
+                    int goalNum = 1;
+                    ROS_INFO("Command to Navigate location %d at x: %5.1f y: %5.2f w: %5.2f",
+                              goalNum,
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w);
                     pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                        nodeState.target1_x, nodeState.target1_y, nodeState.target1_w ));
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnAngle = 0.0;
                     ROS_INFO("%s: ButtonPress: FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
@@ -759,9 +761,16 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     drive_SetWheelSpeeds((int)((float)(-1.0) * nodeState.directHwSpeed * nodeState.directHwRightBias),
                                          (int)(nodeState.directHwSpeed * nodeState.directHwLeftBias));
                 } else if (nav_goto_target_mode) {
-                    ROS_INFO("Command to Navigate location 2");
-                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                        nodeState.target2_x, nodeState.target2_y, nodeState.target2_w));
+                    int goalNum = 2;
+                    ROS_INFO("Command to Navigate location %d at x: %5.1f y: %5.2f w: %5.2f",
+                              goalNum,
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w);
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 2", 
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     ROS_INFO("%s: ButtonPress: RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, controlMode.c_str());
@@ -776,9 +785,16 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     drive_SetWheelSpeeds((int)(nodeState.directHwSpeed * nodeState.directHwRightBias),
                                          (int)((float)(-1.0) * nodeState.directHwSpeed * nodeState.directHwLeftBias));
                 } else if (nav_goto_target_mode) {
-                    ROS_INFO("Command to Navigate location 3");
-                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                        nodeState.target3_x, nodeState.target3_y, nodeState.target3_w));
+                    int goalNum = 3;
+                    ROS_INFO("Command to Navigate location %d at x: %5.1f y: %5.2f w: %5.2f",
+                              goalNum,
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w);
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 3", 
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w));
                 } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
                     double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
                     double turnAngle = (double)(-1.0) * nodeState.cmdVelTurnAngle;
@@ -793,9 +809,16 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                     ROS_INFO("%s: ButtonPress: STOP using %s",THIS_NODE_NAME,  controlMode.c_str());
                     drive_SetWheelSpeeds(0,0);
                 } else if (nav_goto_target_mode) {
-                    ROS_INFO("Command to Navigate location 4");
-                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 1", 
-                        nodeState.target4_x, nodeState.target4_y, nodeState.target4_w));
+                    int goalNum = 4;
+                    ROS_INFO("Command to Navigate location %d at x: %5.1f y: %5.2f w: %5.2f",
+                              goalNum,
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w);
+                    pushButtonGoal(MoveGoal(G_MOVE_TO_MAP_LOCATION, "Move to location 4", 
+                              nodeState.goalLocations[goalNum].x,
+                              nodeState.goalLocations[goalNum].y,
+                              nodeState.goalLocations[goalNum].w));
                 } else {   // ALWAYS let stop get through
                     double driveSpeed = 0.0;
                     double turnSpeed  = 0.0;
@@ -915,7 +938,7 @@ int main(int argc, char** argv)
                     mbGoal.target_pose.pose.orientation.w = goal.getW();
 
                     if (joy_input.nodeState.disableNavStack == 0) {
-                        ROS_DEBUG("%s: Publish new MoveBaseGoal with user desc '%s' and X= %f Y= %f W= %f", 
+                        ROS_INFO("%s: Publish new MoveBaseGoal with user desc '%s' and X= %f Y= %f W= %f", 
                             THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
 
                         ac.sendGoal(mbGoal);
