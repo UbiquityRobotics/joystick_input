@@ -29,9 +29,15 @@
 #include <geometry_msgs/Twist.h>       // classic 'twist' messages for bot motion commands
 
 // Things used to tell the bot nav stack to move to a specific location
+// CUSTOM:  You can undef USE_MOVEBASE so that you don't have to have
+// the rather heavy ros navigation stack just to use joystick
+//
+#undef   USE_MOVEBASE
+#ifdef   USE_MOVEBASE
 #include <move_base_msgs/MoveBaseAction.h>	// Messages to direct nav stack movement
 #include <actionlib/client/simple_action_client.h>
 typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
+#endif
 
 #define THIS_NODE_NAME	"joy_input"    // Node name hard coded
 #define LOOPS_PER_SEC   4
@@ -882,6 +888,7 @@ int main(int argc, char** argv)
 
 
     //tell the action client that we want to spin a thread by default
+    #ifdef   USE_MOVEBASE   // {  Support MoveBase nav command buttons
     MoveBaseClient ac("move_base", true);
   
     if (joy_input.nodeState.disableNavStack == 0) {
@@ -895,6 +902,8 @@ int main(int argc, char** argv)
   
     move_base_msgs::MoveBaseGoal mbGoal;
     mbGoal.target_pose.header.frame_id = "base_link";
+    #endif   // } USE_MOVEBASE
+
     geometry_msgs::Twist cmd_vel_msg;
 
     int loopCount = 0;
@@ -931,7 +940,10 @@ int main(int argc, char** argv)
                     break;
 
 
+                #ifdef   USE_MOVEBASE   // {  Support MoveBase nav command buttons
                 case  G_MOVE_TO_MAP_LOCATION:
+
+
                     mbGoal.target_pose.header.stamp = ros::Time::now();
                     mbGoal.target_pose.pose.position.x = goal.getX();
                     mbGoal.target_pose.pose.position.y = goal.getY();
@@ -956,7 +968,9 @@ int main(int argc, char** argv)
                         ROS_ERROR("%s: MoveBase DISABLED but we got goal with desc '%s' to X= %f Y= %f W= %f", 
                             THIS_NODE_NAME, goal.getDescription().c_str(), goal.getX(), goal.getY(), goal.getW());
                     }
+
                     break;
+                #endif   // } USE_MOVEBASE
 
                 default:
                     ROS_INFO("%s: Unrecognized goal type %d with description '%s' with X= %f Y= %f ", THIS_NODE_NAME,

@@ -28,6 +28,7 @@
 
 
     <!-- Navigation target points in x y and w for orientation -->
+    <!-- MoveBase can only function if it has been enabled per this repositories README -->
     <param name="/target_1_x"         value="0.00" />
     <param name="/target_1_y"         value="0.00" />
     <param name="/target_1_w"         value="1.00" />

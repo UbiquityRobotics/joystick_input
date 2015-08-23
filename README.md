@@ -10,11 +10,17 @@ The system needs to feed this node with the /joy topic from a joystick of choice
 
         sudo apt-get install ros-indigo-joystick-drivers
 
-## Dependance on navigation stack
+## Optional Dependance on navigation stack if MoveBase support is desired
 
-The node now has ability to use  movebase specification to nav targets so we need that code
+The node has ability to use  movebase specification to nav targets with slight modifications
+If you wish to issue MoveBase commands from the joystick you will need to do these things
+
 
         sudo apt-get install  ros-indigo-navigation
+        cp CMakeLists_with_movebase.txt CMakeLists.txt
+        cp package_with_movebase.xml package.xml
+
+Then you will need to enable movebase usage in joy_input.cpp by editing the file and find the #undef USE_MOVEBASE line to change the   undef to a  define.    Now after the catkin_make movebase will be possible per instructions below.
 
 ## Configuration of joystick in use
 
@@ -83,6 +89,8 @@ The XBox 'Start' (PS3 Start) is the Direct Hardware Drive 'mode shift key' held 
 
 ## Navigation Target Specification   
 Uses XBox 'Back' button (PS3 'Select' button) as a Nav target specification 'mode shift key'.
+
+Support for the MoveBase keys is only possible if the Optional dependency directions have been followed so that navigation is possible.  Please see earlier in this README on modifications to source to allow MoveBase
 
 When held down this causes the 4 colorful keys to issue movebase commands to the 4 configured targets.  Target definitions are given as x,y,w as ROS parameters in the launch file but will be re-read every 5 seconds or so to allow dynamic changing of target nav points as the bot is running.  You must use  rosparam set to change those if already running.
 
