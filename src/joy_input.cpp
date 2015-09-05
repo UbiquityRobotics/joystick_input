@@ -128,6 +128,9 @@ typedef struct NodeState {
     double cmdVelThrottle;     // The loop speed BE CAREFUL!
 
     bool   enableJoystick;     // If set non-zero we allow the joystick bat handle operations
+    int    cmdVelRepeatRate;   // Non-zero enables auto-repeat at this rate but throttled by main loop rate
+    double cmdVelLast_X;       // Used for auto-repeat of last linear  x twist value published
+    double cmdVelLast_Z;       // Used for auto-repeat of last angular z twist value published
 
     bool   disableNavStack;    // If set non-zero we disable nav stack code
 
@@ -227,6 +230,17 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
     } else {
       ROS_INFO("%s: The joystick bat-handle will be ENABLED. ", THIS_NODE_NAME);
       state.enableJoystick = 1;
+    }
+  }
+
+  paramInt = state.cmdVelRepeatRate;
+  if (fetchIntRosParam(nh, "/joy_input/cmd_vel_repeat_rate", paramInt)) {
+    if (paramInt == 0) {
+      ROS_INFO("%s: The joystick auto-repeat will be DISABLED. ", THIS_NODE_NAME);
+      state.cmdVelRepeatRate = 0;
+    } else {
+      ROS_INFO("%s: The joystick auto-repeat will be ENABLED. ", THIS_NODE_NAME);
+      state.cmdVelRepeatRate = paramInt;
     }
   }
 
@@ -853,7 +867,9 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
 
 
 
-
+//
+//  Main loop for background ros node processing
+//
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "joy_input");
@@ -861,10 +877,7 @@ int main(int argc, char** argv)
 
     ros::NodeHandle nh;
 
-
     int joyType = JOYSTICK_XBOX;
-    // if (fetchIntRosParam(nh, "/joy_input/joystick_type", joyType)) {
-    // }
     if (joy_input.setJoystickType(joyType) < 0) {
         ROS_ERROR("%s: Illegal joystick type of %d. XBOX=%d PS3=%d",THIS_NODE_NAME,
             joyType, JOYSTICK_XBOX, JOYSTICK_PS3);
@@ -904,7 +917,11 @@ int main(int argc, char** argv)
     mbGoal.target_pose.header.frame_id = "base_link";
     #endif   // } USE_MOVEBASE
 
+    // A bit of init used for cmd_vel with it's auto-repeat
     geometry_msgs::Twist cmd_vel_msg;
+    joy_input.nodeState.cmdVelLast_X = 0.0;
+    joy_input.nodeState.cmdVelLast_Z = 0.0;
+    float lastCmdVelPubSeconds = ros::Time::now().toSec();
 
     int loopCount = 0;
     while (ros::ok())
@@ -934,9 +951,10 @@ int main(int argc, char** argv)
                         goal.getX(), goal.getY());
 
                     // Publish a twist message to /cmd_vel as our output for this pass
-                    cmd_vel_msg.linear.x  =  goal.getX();
-                    cmd_vel_msg.angular.z =  goal.getY();
+                    cmd_vel_msg.linear.x  = joy_input.nodeState.cmdVelLast_X = goal.getX();
+                    cmd_vel_msg.angular.z = joy_input.nodeState.cmdVelLast_Z = goal.getY();
                     joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
+                    lastCmdVelPubSeconds = ros::Time::now().toSec();
                     break;
 
 
@@ -999,28 +1017,41 @@ int main(int argc, char** argv)
 
 
             // Enforce joystick deadzone for both x,y as 0 if joystick is at nominal null center
-            double joystick_X = goal.getX();
-            double joystick_Y = goal.getY();
+            joy_input.nodeState.cmdVelLast_X = goal.getX();
+            joy_input.nodeState.cmdVelLast_Z = goal.getY();
             std::string deadzoneMode = ""; 
-            if ((fabs(joystick_X) < joy_input.nodeState.joystickDeadzone) &&
-                (fabs(joystick_Y) < joy_input.nodeState.joystickDeadzone))    {
+            if ((fabs(joy_input.nodeState.cmdVelLast_X) < joy_input.nodeState.joystickDeadzone) &&
+                (fabs(joy_input.nodeState.cmdVelLast_Z) < joy_input.nodeState.joystickDeadzone))    {
               ROS_INFO("%s: Joystick  x %f z %f in deadzone of %f", THIS_NODE_NAME, 
                 goal.getX(), goal.getY(), joy_input.nodeState.joystickDeadzone);
-              joystick_X = 0.0;
-              joystick_Y = 0.0;
+              joy_input.nodeState.cmdVelLast_X = 0.0;
+              joy_input.nodeState.cmdVelLast_Z = 0.0;
               deadzoneMode = "[deadzone]";
             }
 
-            ROS_INFO("%s: Publish last of %d joystick action to /cmd_vel with linear.x %f angular.z %f %s", 
-                THIS_NODE_NAME, numJoystickGoals, joystick_X, joystick_Y, deadzoneMode.c_str());
+            ROS_INFO("%s: Publish last of %d joystick action to /cmd_vel with linear.x %f angular.z %f", 
+                THIS_NODE_NAME, numJoystickGoals, joy_input.nodeState.cmdVelLast_X, joy_input.nodeState.cmdVelLast_Z );
 
             numJoystickGoals = 0;	// This allows us to exit the while
 
             // Publish a twist message to /cmd_vel as our output for this pass
-            cmd_vel_msg.linear.x  =  joystick_X;
-            cmd_vel_msg.angular.z =  joystick_Y; 
+            cmd_vel_msg.linear.x  =  joy_input.nodeState.cmdVelLast_X;
+            cmd_vel_msg.angular.z =  joy_input.nodeState.cmdVelLast_Z; 
             joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
+            lastCmdVelPubSeconds = ros::Time::now().toSec();
+        }
 
+        // Check for need for auto-repeat of cmd_vel if last movement cmd was non-zero
+        float timeNowSeconds = ros::Time::now().toSec();
+        if (((joy_input.nodeState.cmdVelLast_X != 0.0) || (joy_input.nodeState.cmdVelLast_Z != 0.0)) &&
+            ((timeNowSeconds - lastCmdVelPubSeconds) >= ((float)(1.0)/(float)joy_input.nodeState.cmdVelRepeatRate))) {
+            // Publish a twist message to /cmd_vel as our output for this pass
+            ROS_INFO("%s: Do Auto-Repeat Publish to /cmd_vel with last values of linear.x %f angular.z %f ", 
+                THIS_NODE_NAME, joy_input.nodeState.cmdVelLast_X, joy_input.nodeState.cmdVelLast_Z);
+            cmd_vel_msg.linear.x  =  joy_input.nodeState.cmdVelLast_X;
+            cmd_vel_msg.angular.z =  joy_input.nodeState.cmdVelLast_Z; 
+            joy_input.cmd_vel_pub_.publish(cmd_vel_msg); // Publish classic 'twist' velocities
+            lastCmdVelPubSeconds = timeNowSeconds;
         }
 
         ros::spinOnce();
