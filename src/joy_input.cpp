@@ -40,14 +40,22 @@ typedef  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseC
 #endif
 
 #define THIS_NODE_NAME	"joy_input"    // Node name hard coded
-#define LOOPS_PER_SEC   4
+#define LOOPS_PER_SEC   10
 
 // Locate these in a system-wide include which I am not aware of at this time
 #define  SERIAL_DEV_TO_MOTOR_DRIVER   "/dev/ttyAMA0"    // Raspberry Pi main serial port
-#define  WHEEL_SPEED_MAX          20                // max wheel speed
-#define  DEFAULT_SPEED            10
-#define  DEFAULT_TURNING          5
-#define  DEFAULT_JOYSTICK_DEADZONE ((double)(0.02))
+#define  WHEEL_SPEED_MAX           20                // max wheel speed
+
+// These values are all set with ROS parameters which have defaults but are in in case not seen
+#define  DEFAULT_JOY_SPEED_SCALE   ((double)(0.25))
+#define  DEFAULT_JOY_SPEED_MAX     ((double)(0.50))
+#define  DEFAULT_JOY_TURN_SCALE    ((double)(1.0))
+#define  DEFAULT_JOY_TURN_MAX      ((double)(1.8))
+#define  DEFAULT_JOYSTICK_DEADZONE ((double)(0.05))
+#define  DEFAULT_BTN_SPEED         ((double)(0.10))
+#define  DEFAULT_BTN_TURN_SPEED    ((double)(0.0))
+#define  DEFAULT_BTN_TURN_ANGLE    ((double)(1.0))
+#define  DEFAULT_JOYSTICK_DEADZONE ((double)(0.05))
 
 // Button definitions for the array place used for a given controller
 // use rostopic echo /joy for your controller and define buttons below
@@ -138,12 +146,18 @@ typedef struct NodeState {
 
     double cmdVelMsgPerSec;    // loop speed that throttles reading of goals (ros loops per sec)
 
-    double cmdVelSpeed;        // The velocity used for simple button twist velocity
-    double cmdVelTurnSpeed;    // The velocity used for simple button twist turning 
-    double cmdVelTurnAngle;    // The angle    used for simple button twist turning 
+    bool   triggerHeldActive;  // We only send cmd_vel if trigger button is held
 
-    double cmdVelJoyMax;       // The scaling factor used forward/back joystick gain
+    //     Joystick scaling and max values
+    double cmdVelJoySpeedScale; // The scale factor to apply to /joy joystick which goes from -1 to 1
+    double cmdVelJoySpeedMax;  // The scaling factor used forward/back joystick gain
+    double cmdVelJoyTurnScale; // The scaling of the /joy angular turn value prior to max cap
     double cmdVelJoyTurnMax;   // The scaling factor used forward/back joystick gain
+
+    //     Values only used for fixed button speeds in cmd_vel or in direct mode
+    double cmdVelBtnSpeed;     // The velocity used for simple button twist velocity
+    double cmdVelBtnTurnAngle; // The angle    used for simple button twist turning 
+    double cmdVelBtnTurnSpeed; // The velocity used for simple button twist turning 
 
     double directHwSpeed;      // The velocity used for simple button serial speed 
     double directHwTurnSpeed;  // The velocity used for simple button serial turning
@@ -254,27 +268,35 @@ void  refreshBotStateParams(ros::NodeHandle &nh, NodeState &state) {
     state.cmdVelMsgPerSec = paramFloat;
   }
 
-  paramFloat = state.cmdVelSpeed;
-  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_speed", paramFloat)) {
-    state.cmdVelSpeed = paramFloat;
+  paramFloat = state.cmdVelJoySpeedScale;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_speed_scale", paramFloat)) {
+    state.cmdVelJoySpeedScale = paramFloat;
   }
-  paramFloat = state.cmdVelTurnSpeed;
-  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_turn_speed", paramFloat)) {
-    state.cmdVelTurnSpeed = paramFloat;
+  paramFloat = state.cmdVelJoySpeedMax;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_speed_max", paramFloat)) {
+    state.cmdVelJoySpeedMax = paramFloat;
   }
-
-  paramFloat = state.cmdVelTurnAngle;
-  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_turn_angle", paramFloat)) {
-    state.cmdVelTurnAngle = paramFloat;
-  }
-
-  paramFloat = state.cmdVelJoyMax;
-  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_max", paramFloat)) {
-    state.cmdVelJoyMax = paramFloat;
+  paramFloat = state.cmdVelJoyTurnScale;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_turn_scale", paramFloat)) {
+    state.cmdVelJoyTurnScale = paramFloat;
   }
   paramFloat = state.cmdVelJoyTurnMax;
   if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_joy_turn_max", paramFloat)) {
     state.cmdVelJoyTurnMax = paramFloat;
+  }
+
+  paramFloat = state.cmdVelBtnSpeed;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_btn_speed", paramFloat)) {
+    state.cmdVelBtnSpeed = paramFloat;
+  }
+  paramFloat = state.cmdVelBtnTurnAngle;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_btn_turn_angle", paramFloat)) {
+    state.cmdVelBtnTurnAngle = paramFloat;
+  }
+
+  paramFloat = state.cmdVelBtnTurnSpeed;
+  if (fetchFloatRosParam(nh, "/joy_input/cmd_vel_btn_turn_speed", paramFloat)) {
+    state.cmdVelBtnTurnSpeed = paramFloat;
   }
 
   paramFloat = state.directHwSpeed;
@@ -701,15 +723,23 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
     /*
      * Twist topic output on joystick with button press
      */
-    bool enable_control = true;   // Default is always enable joystick to cmd_vel twist output
+    bool triggerIsPressed = true;   // Default is always enable joystick to cmd_vel twist output
     if(joy->buttons.size() >= buttonMap.buttonCmdVel) {
-        enable_control = joy->buttons[buttonMap.buttonCmdVel];
+        triggerIsPressed = joy->buttons[buttonMap.buttonCmdVel];
     }
+    nodeState.triggerHeldActive = triggerIsPressed;
 
     if (nodeState.enableJoystick) {
-        if (enable_control) {
-            double driveSpeed = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoyMax;
-            double turnSpeed  = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnMax;
+        if (nodeState.triggerHeldActive) {
+            // Take in /joy speed joystick value and scale then cap it if required
+            double driveSpeed = joy->axes[axisMap.axisLinear] * nodeState.cmdVelJoySpeedScale;
+            if (fabs(driveSpeed) > nodeState.cmdVelJoySpeedMax) {
+                driveSpeed = driveSpeed * (nodeState.cmdVelJoySpeedMax/driveSpeed);
+            }
+            double turnSpeed  = joy->axes[axisMap.axisAngular] * nodeState.cmdVelJoyTurnScale;;
+            if (fabs(turnSpeed) > nodeState.cmdVelJoyTurnMax) {
+                turnSpeed = turnSpeed * (nodeState.cmdVelJoyTurnMax/turnSpeed);
+            }
 
             // Pull the joysticks for forward and turning off of /joy topic
             pushJoystickGoal(MoveGoal(G_MOVE_CMD_VEL_JOYSTICK, "Joystick driving using /cmd_vel",
@@ -766,12 +796,12 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                               nodeState.goalLocations[goalNum].x,
                               nodeState.goalLocations[goalNum].y,
                               nodeState.goalLocations[goalNum].w));
-                } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
+                } else if (nodeState.triggerHeldActive) {   // only allow presses that are not stop if L1 is pressed
                     double turnAngle = 0.0;
                     ROS_INFO("%s: ButtonPress: FORWARD with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
-                         nodeState.cmdVelSpeed, turnAngle, controlMode.c_str());
+                         nodeState.cmdVelBtnSpeed, turnAngle, controlMode.c_str());
                     pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move FORWARD using /cmd_vel",
-                        nodeState.cmdVelSpeed, turnAngle, 0.0));
+                        nodeState.cmdVelBtnSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonRightNav2) {
@@ -791,11 +821,13 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                               nodeState.goalLocations[goalNum].x,
                               nodeState.goalLocations[goalNum].y,
                               nodeState.goalLocations[goalNum].w));
-                } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
+                } else if (nodeState.triggerHeldActive) {  // only allow presses that are not stop if L1 is pressed
+                    double turnSpeed = (double)(-1.0) * nodeState.cmdVelBtnTurnSpeed;
+                    double turnAngle = (double)(-1.0) * nodeState.cmdVelBtnTurnAngle;
                     ROS_INFO("%s: ButtonPress: RIGHT   with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
-                         nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, controlMode.c_str());
+                         turnSpeed, turnAngle, controlMode.c_str());
                     pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
-                        nodeState.cmdVelTurnSpeed, nodeState.cmdVelTurnAngle, 0.0));
+                        turnSpeed, turnAngle, 0.0));
                 }
 
             } else if (button == buttonMap.buttonLeftNav3) {
@@ -815,9 +847,9 @@ void JoyInput::joyCallback(const sensor_msgs::Joy::ConstPtr& joy)
                               nodeState.goalLocations[goalNum].x,
                               nodeState.goalLocations[goalNum].y,
                               nodeState.goalLocations[goalNum].w));
-                } else if (enable_control) {	// only allow presses that are not stop if L1 is pressed
-                    double turnSpeed = (double)(-1.0) * nodeState.cmdVelTurnSpeed;
-                    double turnAngle = (double)(-1.0) * nodeState.cmdVelTurnAngle;
+                } else if (nodeState.triggerHeldActive) {	// only allow presses that are not stop if L1 is pressed
+                    double turnSpeed = (double)(1.0) * nodeState.cmdVelBtnTurnSpeed;
+                    double turnAngle = (double)(1.0) * nodeState.cmdVelBtnTurnAngle;
                     ROS_INFO("%s: ButtonPress: LEFT    with speed %3.1f, angle %3.1f using %s", THIS_NODE_NAME, 
                          turnSpeed, turnAngle, controlMode.c_str());
                     pushButtonGoal(MoveGoal(G_MOVE_CMD_VEL_BUTTON, "Move RIGHT   using /cmd_vel",
@@ -887,13 +919,16 @@ int main(int argc, char** argv)
     }
 
     // Set a few default params in case not preset as ros params
-    joy_input.nodeState.cmdVelSpeed         = (double)(DEFAULT_SPEED);
-    joy_input.nodeState.cmdVelTurnSpeed     = (double)(DEFAULT_TURNING);
+    joy_input.nodeState.cmdVelBtnSpeed      = DEFAULT_BTN_SPEED;
+    joy_input.nodeState.cmdVelBtnTurnSpeed  = DEFAULT_BTN_TURN_SPEED;
+    joy_input.nodeState.cmdVelBtnTurnAngle  = DEFAULT_BTN_TURN_ANGLE;
     joy_input.nodeState.joystickDeadzone    = DEFAULT_JOYSTICK_DEADZONE;
-    joy_input.nodeState.cmdVelJoyMax        = AXIS_LINEAR_SCALE;
-    joy_input.nodeState.cmdVelJoyTurnMax    = AXIS_ANGULAR_SCALE;
-    joy_input.nodeState.directHwSpeed       = (double)(DEFAULT_SPEED);
-    joy_input.nodeState.directHwTurnSpeed   = (double)(DEFAULT_TURNING);
+    joy_input.nodeState.cmdVelJoySpeedScale = DEFAULT_JOY_SPEED_SCALE;
+    joy_input.nodeState.cmdVelJoySpeedMax   = DEFAULT_JOY_SPEED_MAX;
+    joy_input.nodeState.cmdVelJoyTurnScale  = DEFAULT_JOY_TURN_SCALE;
+    joy_input.nodeState.cmdVelJoyTurnMax    = DEFAULT_JOY_TURN_MAX;
+    joy_input.nodeState.directHwSpeed       = (double)(8.0);
+    joy_input.nodeState.directHwTurnSpeed   = (double)(1.0);
 
 
     // We are going to refresh parameters from time to time so those go in a refresh utility
@@ -930,7 +965,7 @@ int main(int argc, char** argv)
         // Define our main loop rate as a ROS rate and we will let ROS do waits between loops
         ros::Rate loop_rate(joy_input.nodeState.cmdVelMsgPerSec);
 
-        if ((loopCount % (LOOPS_PER_SEC*5))== 1) { // pull in any changed parameters via ros param server
+        if ((loopCount % (LOOPS_PER_SEC*10))== 1) { // pull in any changed parameters via ros param server
             refreshBotStateParams(nh, joy_input.nodeState);
         }
 
@@ -1043,7 +1078,8 @@ int main(int argc, char** argv)
 
         // Check for need for auto-repeat of cmd_vel if last movement cmd was non-zero
         float timeNowSeconds = ros::Time::now().toSec();
-        if (((joy_input.nodeState.cmdVelLast_X != 0.0) || (joy_input.nodeState.cmdVelLast_Z != 0.0)) &&
+        if ((joy_input.nodeState.triggerHeldActive) &&
+            ((joy_input.nodeState.cmdVelLast_X != 0.0) || (joy_input.nodeState.cmdVelLast_Z != 0.0)) &&
             ((timeNowSeconds - lastCmdVelPubSeconds) >= ((float)(1.0)/(float)joy_input.nodeState.cmdVelRepeatRate))) {
             // Publish a twist message to /cmd_vel as our output for this pass
             ROS_INFO("%s: Do Auto-Repeat Publish to /cmd_vel with last values of linear.x %f angular.z %f ", 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This ROS node feeds off of an inbound /joy topic containing joystick buttons and joysticks.  The node then can convert a joystick to the /cmd_vel or twist format outbound topic and can recognize hand controller buttons for other forms of system control
+This ROS node feeds off of an inbound /joy topic containing joystick buttons and joysticks.  The node then can convert a joystick to the /cmd_vel or twist format outbound topic and can recognize hand controller buttons for other forms of system control.  This node also has some features that are outside of the scope of just a joystick so that the other buttons on our joystick could control other aspects of the bot as if we had a control panel that included a joystick. These other features were done so a simplistic remote front panel would be available without need for WiFi. 
 
 ## Dependance on an inbound /joy topic
 
@@ -10,10 +10,12 @@ The system needs to feed this node with the /joy topic from a joystick of choice
 
         sudo apt-get install ros-indigo-joystick-drivers
 
+If you plug in a joystick dongle and you do not see /dev/input/js0 then there is no hope that /joy will find the joystick and thus no hope that this package will be able to use topic /joy for input.   Resolve that first.
+
 ## Optional Dependance on navigation stack if MoveBase support is desired
 
-The node has ability to use  movebase specification to nav targets with slight modifications
-If you wish to issue MoveBase commands from the joystick you will need to do these things
+The joy_input node has the ability to use  movebase specification to nav targets with slight modifications
+If you wish to issue MoveBase commands from the joystick you will need to do these things.  This was something put in that is more along the lines of something we wanted for trade shows so we could run pure bluetooth joystick and not have to get wifi going at a tradeshow.
 
 
         sudo apt-get install  ros-indigo-navigation
@@ -24,20 +26,27 @@ Then you will need to enable movebase usage in joy_input.cpp by editing the file
 
 ## Configuration of joystick in use
 
-The node was written to support XBox 360 controller and PS3 bluetooth controller but the PS3 dongle needs to be able to be set to emulate XBox and only then will you have luck.   We have found that the  'Wireless PS3 Controller To PC USB Adapter [by Mayflash] works if set to Xinput when using PS3 controller.  The XBox dongle we have found to work is the 'PC Wireless Gaming Receiver' which says model 1086 on the tag near the usb plug.
+The node was written to support PS3 dualshock and XBox 360 controllers as long as the PS3 controller has an XInput selection to emulate XBox 360 protocol.   We have found that the  'Wireless PS3 Controller To PC USB Adapter [by Mayflash] works if set to Xinput when using PS3 controller.  The XBox dongle we have found to work is the 'PC Wireless Gaming Receiver' which says model 1086 on the tag near the usb plug.
 
-The parameters in joystick.launch are briefly discussed below but are commented in the launch file as well
+ROS parameters set in the launchfile allow the node to be customized in common ways.   Since the joystick axis moves show up as -1 to +1 for both fwd/reverse and right to left we have included for both the ability to scale the /joy axis value and then cap it to a max if required.  The parameters in joystick.launch are briefly discussed below but are commented in the launch file as well
 
         enable_joystick           Set to 0 to disable joystick completely (not likely to be needed)
-        joystick_deadzone         Set this to change the deadzone where joystick returns 0 if lower 
+        joystick_deadzone         Defines a deadzone where joystick returns 0. Needed due to cheap joysticks
         cmd_vel_msg_per_sec       Max messages issued per second to throttle too many messages
                                   This defaults to about 4 per second but you can set up to about 10.
-        cmd_vel_speed             The speed used for the forward button (not the joystick)
-        cmd_vel_angle             The angular speed used for the right or left button (not the joystick)
-        cmd_vel_joy_max           The joystick fwd/back max value for joystick pressed all the way
-        cmd_vel_joy_turn_max      The joystick right/left max value for joystick pressed all the way
 
-        disable_nav_stack         Set to 0 to disable move_base hotkeys programmed with target_N_x, y, z
+        Joystick Specific Parameters. We have a scale applied to /joy value then a max cap applied
+        cmd_vel_joy_speed_scale   The joystick fwd/back scale applied to the -1 to 1 /joy values
+        cmd_vel_joy_speed_max     The joystick fwd/back max values to /cmd_vel after scaling
+        cmd_vel_joy_turn_scale    The joystick right/left scale applied to the -1 to 1 /joy values
+        cmd_vel_joy_turn_max      The joystick right/left max values to /cmd_val after scaling
+
+        Button values for speed are here and have single non-changing values
+        cmd_vel_btn_speed         The speed used for the forward button (not the joystick)
+        cmd_vel_btn_turn_speed    The linear speed used for the forward button (not the joystick)
+        cmd_vel_btn_turn_angle    The angular speed used for the right or left button (not the joystick)
+
+        disable_nav_stack         Defaults to 0 as this was a show demo mode. To use this see section above
         target_N_x                Pre-programed move_base x,y,z values for wireless 'goto nav point' use
 
 The joy_input node consumes topic /joy and you may find it of value see the output of the required ros-indigo-joystick-drivers node using this command below.  If you don't see anything on /joy then the joy_input node will have no input.
